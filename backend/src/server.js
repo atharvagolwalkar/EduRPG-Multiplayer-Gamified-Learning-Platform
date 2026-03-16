@@ -4,6 +4,8 @@ import cors from 'cors';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import { setupWebSocket } from './websocket.js';
+import { setupMultiplayerWebSocket } from './multiplaya-websocket.js';
+import { setupFirebaseRoutes } from './routes/firebaseRoutes.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -14,7 +16,12 @@ app.use(express.json());
 
 // Health Check
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', message: 'EduRPG Backend Running' });
+  res.json({ 
+    status: 'ok', 
+    message: 'EduRPG Backend Running',
+    firebase: 'connected',
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Create HTTP Server for WebSocket
@@ -24,12 +31,17 @@ const io = new Server(server, {
     origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
     methods: ['GET', 'POST'],
   },
+  transports: ['websocket', 'polling'],
 });
 
-// Setup WebSocket
+// Setup WebSocket namespaces
 setupWebSocket(io);
+setupMultiplayerWebSocket(io);
 
-// Simple API Routes
+// Setup Firebase Routes
+setupFirebaseRoutes(app);
+
+// Simple API Routes (backward compatibility)
 app.post('/api/auth/register', (req, res) => {
   const { username, email, password } = req.body;
   // Mock registration
@@ -67,7 +79,22 @@ server.listen(port, () => {
     ║   🚀 EduRPG Backend Running        ║
     ║   Port: ${port}                      ║
     ║   WebSocket: Active                ║
+    ║   Firebase: Connected              ║
+    ║   API: Ready                       ║
     ╚════════════════════════════════════╝
+  `);
+  console.log(`
+    📡 WebSocket Namespaces:
+    • /raids (multiplayer raids)
+    • / (general events)
+    
+    📚 API Routes:
+    • POST /api/users/create
+    • GET /api/users/:userId
+    • POST /api/raids/start
+    • GET /api/leaderboard/global
+    • POST /api/guilds/create
+    • GET /api/guilds
   `);
 });
 
