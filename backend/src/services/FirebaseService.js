@@ -46,12 +46,30 @@ export class UserService {
     const newLevel = Math.floor(Math.sqrt(newTotalXp / 100)) + 1;
 
     await this.updateUser(userId, {
-      xp: xpAmount,
+      xp: newTotalXp,
       totalXp: newTotalXp,
       level: newLevel,
     });
 
     return { newLevel, newTotalXp };
+  }
+
+  static async recordRaidResult(userId, outcome) {
+    const user = await this.getUser(userId);
+    if (!user) return null;
+
+    const currentStats = user.stats || {};
+
+    const nextStats = {
+      wins: (currentStats.wins || 0) + (outcome.won ? 1 : 0),
+      losses: (currentStats.losses || 0) + (outcome.won ? 0 : 1),
+      raidsCompleted: (currentStats.raidsCompleted || 0) + 1,
+      monsterDefeated: (currentStats.monsterDefeated || 0) + (outcome.monsterDefeated ? 1 : 0),
+      totalDamageDealt: (currentStats.totalDamageDealt || 0) + (outcome.damageDealt || 0),
+    };
+
+    await this.updateUser(userId, { stats: nextStats });
+    return nextStats;
   }
 
   static async getLeaderboard(limit = 10) {
@@ -75,10 +93,11 @@ export class UserService {
 
 export class RaidService {
   static async startRaid(raidData) {
-    const raidId = uuidv4();
+    const raidId = raidData.id || uuidv4();
+    const players = raidData.players || [];
     const raid = {
       id: raidId,
-      players: raidData.players,
+      players,
       monsterName: raidData.monsterName,
       monsterMaxHp: raidData.monsterMaxHp,
       monsterHp: raidData.monsterMaxHp,
@@ -92,6 +111,15 @@ export class RaidService {
       questionsAnswered: 0,
       correctAnswers: 0,
       streak: 0,
+      playerProgress: Object.fromEntries(
+        players.map((player) => [
+          player.id,
+          {
+            damageDealt: 0,
+            correctAnswers: 0,
+          },
+        ])
+      ),
     };
 
     await db.collection('raids').doc(raidId).set(raid);
@@ -119,7 +147,6 @@ export class RaidService {
 
     await this.updateRaid(raidId, updates);
 
-    // Award XP to all players
     if (xpReward) {
       for (const player of raid.players) {
         await UserService.addXP(player.id, xpReward);

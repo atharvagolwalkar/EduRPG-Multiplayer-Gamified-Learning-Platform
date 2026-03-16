@@ -31,6 +31,9 @@ EduRPG is a multiplayer gamified learning platform where undergraduate students 
 - A dedicated raid namespace exists in `backend/src/multiplaya-websocket.js`.
 - Raid join, damage, end, and player-left events are implemented on the backend.
 - Frontend multiplayer hook exists in `frontend/src/lib/useMultiplayer.ts`.
+- Raid rooms now support shareable raid codes and UI-driven room joins.
+- The raid screen now syncs boss HP, team HP, streaks, player roster, and per-player damage through socket events.
+- Raid completion now updates user raid stats and guild XP on the backend.
 
 ### 5. Frontend gameplay screens
 - Home page now supports hero creation and app entry flow.
@@ -43,8 +46,9 @@ EduRPG is a multiplayer gamified learning platform where undergraduate students 
   - listing guilds
   - creating guilds
   - joining guilds
-- Leaderboard page supports live fetch with fallback seed data.
-- Profile page supports local profile view and backend refresh.
+- richer guild detail with member roster and leader display
+- Leaderboard page supports live fetch, clearer global/weekly/guild distinction, fallback data, and timed refresh.
+- Profile page supports backend refresh, real stat cards, and raid history display.
 
 ### 6. UI improvement work completed
 - The dull UI was redesigned into a more intentional game-like visual style.
@@ -67,19 +71,7 @@ EduRPG is a multiplayer gamified learning platform where undergraduate students 
 
 ## What Is Partially Done
 
-### 1. Multiplayer raids
-Current state:
-- Backend WebSocket events exist.
-- Frontend has a multiplayer hook.
-- Raid page currently plays mostly as a local demo loop with backend-backed raid start.
-
-Still needed:
-- actual multi-user room join flow from the UI
-- shared raid lobby
-- syncing multiple real players into one visible raid session
-- rendering teammate cards, shared HP, and live participant states in the UI
-
-### 2. Firebase integration
+### 1. Firebase integration
 Current state:
 - Firebase-style service layer exists.
 - Local mock mode works.
@@ -90,36 +82,27 @@ Still needed:
 - auth rules / security rules
 - production-ready environment configuration
 
-### 3. Guild system
+### 2. Learning progression systems
+Current state:
+- level and XP exist
+- raid stats now update on the backend
+- profile shows real raid history and stat totals
+
+Still needed:
+- long-term progression history views
+- concept mastery model
+- skill unlock relationships tied to actual learning
+
+### 3. Guild progression depth
 Current state:
 - create/list/join flows exist
 - guild XP logic exists on backend
+- richer guild detail and roster UI now exist
 
 Still needed:
-- richer guild detail view
-- guild member roster UI
 - shared rewards UI
-- guild achievements / guild progression visuals
-
-### 4. Leaderboards
-Current state:
-- backend endpoints exist
-- frontend leaderboard screen exists
-
-Still needed:
-- live refresh / subscriptions
-- clearer distinction between user leaderboard and guild leaderboard
-- ranking animations and better stats detail
-
-### 5. Profile and progression
-Current state:
-- profile page exists
-- level/xp display exists
-
-Still needed:
-- real achievements from backend data
-- recent activity from actual events
-- long-term progression history
+- guild achievements
+- guild-specific progression bonuses or perks
 
 ---
 
@@ -185,10 +168,10 @@ Not built yet:
 ## Recommended Next Build Order
 
 ### Phase 1: Make the MVP truly playable
-1. Connect the raid page to full multiplayer room flow.
-2. Show all players in a raid with shared real-time updates.
-3. Replace mock question sets with a structured question bank.
-4. Persist raid outcomes, XP, and guild progress in real Firebase.
+1. Replace mock question sets with a structured question bank.
+2. Persist raid outcomes, XP, and guild progress in real Firebase.
+3. Add a more explicit raid lobby / ready-state flow before combat begins.
+4. Add multi-user testing across separate browser sessions.
 
 ### Phase 2: Add learning depth
 1. Implement subject/topic-based question pools.
@@ -224,11 +207,11 @@ It already has:
 But it is not yet the full EduRPG concept.
 
 The biggest missing pieces are:
-- true end-to-end multiplayer gameplay in the UI
 - adaptive learning
 - skill trees
 - AI Dungeon Master
 - real educational progression systems
+- production-grade Firebase/auth setup
 
 ---
 
@@ -256,7 +239,7 @@ The biggest missing pieces are:
 
 EduRPG currently fits this description:
 
-> A solid MVP foundation for a multiplayer gamified learning platform, with backend services, a usable frontend shell, improved UI, and a local-playable raid flow.
+> A solid MVP foundation for a multiplayer gamified learning platform, with backend services, a usable frontend shell, improved UI, socket-backed raid rooms, and richer guild/profile/leaderboard flows.
 
 It does not yet fully deliver the complete hackathon vision of:
 

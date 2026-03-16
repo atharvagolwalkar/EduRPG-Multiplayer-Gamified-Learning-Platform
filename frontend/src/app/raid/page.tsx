@@ -1,24 +1,159 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { HPBar } from '@/components/HPBar';
 import { QuestionCard } from '@/components/QuestionCard';
 import { StreakCounter } from '@/components/BattleEffects';
 import { HERO_STATS, calculateDamage, generateMockQuestions } from '@/lib/gameEngine';
 import { useGameStore } from '@/lib/store';
+import { useMultiplayerRaid } from '@/lib/useMultiplayer';
 import { useRaid } from '@/lib/useAPI';
 
+type RaidPlayer = {
+  id: string;
+  username?: string;
+  guildId?: string;
+};
+
+type RaidSyncPayload = {
+  raid: {
+    id: string;
+    players: RaidPlayer[];
+    monsterName: string;
+    monsterHp: number;
+    monsterMaxHp: number;
+    teamHp: number;
+    teamMaxHp: number;
+    streak: number;
+    status: string;
+    playerProgress?: Record<string, { damageDealt: number; correctAnswers: number }>;
+  };
+  message?: string;
+};
+
+type RaidDamagePayload = RaidSyncPayload & {
+  type: 'player-attack' | 'monster-attack';
+  damage: number;
+  playerId?: string;
+};
+
+type RaidEndPayload = {
+  status: 'victory' | 'defeat';
+  xpReward: number;
+  totalDamage: number;
+  correctAnswers: number;
+  raid: RaidSyncPayload['raid'];
+};
+
+function generateRaidCode() {
+  return Math.random().toString(36).slice(2, 8).toUpperCase();
+}
+
 export default function RaidPage() {
-  const { user, raid, setRaid, updateMonsterHp, updatePlayerHp, incrementStreak, resetRaid } = useGameStore();
-  const { startRaid: startRaidAPI } = useRaid();
+  const { user, raid, setRaid, resetRaid } = useGameStore();
+  const { startRaid: startRaidAPI, getRaid } = useRaid();
+  const { socket, connected, joinRaid, submitAnswer } = useMultiplayerRaid(raid.raidId);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [feedbackMessage, setFeedbackMessage] = useState('');
-  const [feedbackType, setFeedbackType] = useState<'correct' | 'wrong' | 'result' | null>(null);
+  const [feedbackType, setFeedbackType] = useState<'correct' | 'wrong' | 'result' | 'info' | null>(null);
   const [raidActive, setRaidActive] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [raidCodeInput, setRaidCodeInput] = useState('');
+  const [raidSummary, setRaidSummary] = useState<RaidEndPayload | null>(null);
+  const joinedRaidRef = useRef<string | null>(null);
 
   const questions = useMemo(() => generateMockQuestions(5), []);
+  const playerProgress = raid.players.map((player) => ({
+    ...player,
+    progress: raid.playerProgress?.[player.id] || { damageDealt: 0, correctAnswers: 0 },
+  }));
+
+  useEffect(() => {
+    if (!connected || !user || !raid.raidId || joinedRaidRef.current === raid.raidId) {
+      return;
+    }
+
+    joinRaid({
+      id: user.id,
+      username: user.username,
+      guildId: user.guildId,
+    });
+    joinedRaidRef.current = raid.raidId;
+  }, [connected, joinRaid, raid.raidId, user]);
+
+  useEffect(() => {
+    if (!socket) {
+      return undefined;
+    }
+
+    const handleSync = (payload: RaidSyncPayload) => {
+      setRaid({
+        raidId: payload.raid.id,
+        players: payload.raid.players.map((player) => ({
+          id: player.id,
+          username: player.username || player.id,
+          heroClass: user?.heroClass || 'mage',
+          level: 1,
+          xp: 0,
+          guildId: player.guildId,
+        })),
+        monsterHp: payload.raid.monsterHp,
+        playerHp: payload.raid.teamHp,
+        streak: payload.raid.streak,
+        isActive: payload.raid.status === 'active',
+        playerProgress: payload.raid.playerProgress,
+      });
+      if (payload.message) {
+        setFeedbackType('info');
+        setFeedbackMessage(payload.message);
+      }
+    };
+
+    const handlePlayerJoined = (payload: RaidSyncPayload) => {
+      handleSync(payload);
+      setFeedbackType('info');
+      setFeedbackMessage(payload.message || 'Raid roster updated.');
+    };
+
+    const handleDamage = (payload: RaidDamagePayload) => {
+      handleSync(payload);
+      setFeedbackType(payload.type === 'player-attack' ? 'correct' : 'wrong');
+      setFeedbackMessage(payload.message || 'Raid state updated.');
+    };
+
+    const handleRaidEnd = (payload: RaidEndPayload) => {
+      handleSync({ raid: payload.raid });
+      setRaidSummary(payload);
+      setRaidActive(false);
+      setFeedbackType('result');
+      setFeedbackMessage(
+        payload.status === 'victory'
+          ? `Victory. Everyone earned ${payload.xpReward} XP.`
+          : 'The raid ended in defeat. Regroup and try again.'
+      );
+      joinedRaidRef.current = null;
+    };
+
+    const handlePlayerLeft = (payload: { message?: string }) => {
+      setFeedbackType('info');
+      setFeedbackMessage(payload.message || 'A player left the raid.');
+    };
+
+    socket.on('raid:sync', handleSync);
+    socket.on('raid:player-joined', handlePlayerJoined);
+    socket.on('raid:damage', handleDamage);
+    socket.on('raid:end', handleRaidEnd);
+    socket.on('raid:player-left', handlePlayerLeft);
+
+    return () => {
+      socket.off('raid:sync', handleSync);
+      socket.off('raid:player-joined', handlePlayerJoined);
+      socket.off('raid:damage', handleDamage);
+      socket.off('raid:end', handleRaidEnd);
+      socket.off('raid:player-left', handlePlayerLeft);
+    };
+  }, [setRaid, socket, user?.heroClass]);
 
   if (!user) {
     return (
@@ -33,33 +168,54 @@ export default function RaidPage() {
     );
   }
 
+  const syncRaidState = (raidData: Awaited<ReturnType<typeof getRaid>>) => {
+    if (!raidData) {
+      return;
+    }
+
+    setRaid({
+      raidId: raidData.id,
+      players: (raidData.players || []).map((player) => ({
+        id: player.id,
+        username: player.username || player.id,
+        heroClass: player.id === user.id ? user.heroClass : user.heroClass,
+        level: 1,
+        xp: 0,
+        guildId: player.guildId,
+      })),
+      monsterHp: raidData.monsterHp,
+      playerHp: raidData.teamHp,
+      streak: raidData.streak,
+      isActive: raidData.status === 'active',
+      playerProgress: raidData.playerProgress,
+    });
+  };
+
   const startRaid = async () => {
     setLoading(true);
     setFeedbackMessage('');
     resetRaid();
+    setRaidSummary(null);
 
     try {
       const heroStats = HERO_STATS[user.heroClass];
+      const raidCode = generateRaidCode();
       const remoteRaid = await startRaidAPI({
+        raidId: raidCode,
         leaderId: user.id,
         difficulty: 'medium',
         monsterHp: 100,
         teamHp: heroStats.maxHp,
-        players: [{ id: user.id, username: user.username }],
+        players: [{ id: user.id, username: user.username, guildId: user.guildId }],
         monsterName: 'Calculus Titan',
       });
 
-      setRaid({
-        raidId: remoteRaid.id,
-        players: [user],
-        monsterHp: remoteRaid.monsterHp,
-        playerHp: heroStats.maxHp,
-        streak: 0,
-        timeRemaining: 300,
-        isActive: true,
-      });
+      syncRaidState(remoteRaid);
+      setRaidCodeInput(raidCode);
       setCurrentQuestionIndex(0);
       setRaidActive(true);
+      setFeedbackType('info');
+      setFeedbackMessage(`Raid ${raidCode} created. Share this code so teammates can join.`);
     } catch (error) {
       console.error('Error starting raid:', error);
       setFeedbackType('wrong');
@@ -69,47 +225,58 @@ export default function RaidPage() {
     }
   };
 
+  const joinExistingRaid = async () => {
+    if (!raidCodeInput.trim()) {
+      return;
+    }
+
+    setLoading(true);
+    setFeedbackMessage('');
+    setRaidSummary(null);
+
+    try {
+      const existingRaid = await getRaid(raidCodeInput.trim().toUpperCase());
+      if (!existingRaid) {
+        setFeedbackType('wrong');
+        setFeedbackMessage('No raid was found for that code.');
+        return;
+      }
+
+      syncRaidState(existingRaid);
+      setCurrentQuestionIndex(0);
+      setRaidActive(true);
+      setFeedbackType('info');
+      setFeedbackMessage(`Joined raid ${existingRaid.id}. Waiting for live sync.`);
+    } catch (error) {
+      console.error('Error joining raid:', error);
+      setFeedbackType('wrong');
+      setFeedbackMessage('Could not join that raid right now.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAnswer = (selectedIndex: number) => {
     const question = questions[currentQuestionIndex];
     const isCorrect = selectedIndex === question.correctIndex;
     const result = calculateDamage(user.heroClass, isCorrect, raid.streak);
-    const nextMonsterHp = Math.max(0, raid.monsterHp - result.damage);
-    const nextPlayerHp = Math.max(0, raid.playerHp - 20);
+    const nextStreak = isCorrect ? raid.streak + 1 : 0;
 
-    if (isCorrect) {
-      updateMonsterHp(nextMonsterHp);
-      incrementStreak();
-      setFeedbackType(nextMonsterHp === 0 ? 'result' : 'correct');
-      setFeedbackMessage(
-        nextMonsterHp === 0
-          ? `Raid cleared. You dealt ${result.damage} final damage${result.isCritical ? ' with a critical strike.' : '.'}`
-          : `Correct answer. You dealt ${result.damage} damage${result.isCritical ? ' and landed a critical hit.' : '.'}`
-      );
-    } else {
-      updatePlayerHp(nextPlayerHp);
-      setRaid({ streak: 0 });
-      setFeedbackType(nextPlayerHp === 0 ? 'result' : 'wrong');
-      setFeedbackMessage(
-        nextPlayerHp === 0
-          ? 'Your team was defeated. Reset and try another run.'
-          : 'Wrong answer. The boss retaliates for 20 damage.'
-      );
-    }
-
-    const battleEnded = nextMonsterHp === 0 || nextPlayerHp === 0 || currentQuestionIndex === questions.length - 1;
+    submitAnswer(isCorrect, result.damage, nextStreak);
 
     window.setTimeout(() => {
-      if (battleEnded) {
-        setRaidActive(false);
-        setRaid({ isActive: false });
-        return;
-      }
-
-      setCurrentQuestionIndex((value) => value + 1);
-      setFeedbackMessage('');
-      setFeedbackType(null);
-    }, 1400);
+      setCurrentQuestionIndex((value) => (value + 1 < questions.length ? value + 1 : 0));
+    }, 900);
   };
+
+  const statusTone =
+    feedbackType === 'correct'
+      ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-100'
+      : feedbackType === 'wrong'
+        ? 'border-rose-300/30 bg-rose-400/10 text-rose-100'
+        : feedbackType === 'result'
+          ? 'border-amber-300/30 bg-amber-300/10 text-amber-50'
+          : 'border-cyan-300/30 bg-cyan-400/10 text-cyan-50';
 
   if (!raidActive) {
     return (
@@ -119,10 +286,10 @@ export default function RaidPage() {
             <div className="space-y-6">
               <p className="section-label">Raid Arena</p>
               <h1 className="headline-gradient text-5xl font-black tracking-tight md:text-7xl">
-                Multiplayer feel, solo-ready demo flow.
+                Real squad raids with shareable room codes.
               </h1>
               <p className="max-w-2xl text-lg leading-8 text-slate-300">
-                This mode launches a local boss fight using the backend raid endpoint, then runs a playable question loop in the UI.
+                Create a raid, share the code with teammates, and let the backend socket room keep every player synced.
               </p>
 
               <div className="grid gap-4 sm:grid-cols-2">
@@ -130,7 +297,7 @@ export default function RaidPage() {
                   ['Boss', 'Calculus Titan'],
                   ['Hero', user.username],
                   ['Class', user.heroClass],
-                  ['Base HP', `${HERO_STATS[user.heroClass].maxHp}`],
+                  ['Socket', connected ? 'Live' : 'Connecting'],
                 ].map(([label, value]) => (
                   <div key={label} className="panel rounded-[24px] p-4">
                     <p className="section-label mb-2">{label}</p>
@@ -142,56 +309,66 @@ export default function RaidPage() {
 
             <div className="space-y-5">
               <div className="panel rounded-[30px] p-6">
-                <p className="section-label mb-4">Mission rules</p>
-                <div className="space-y-3 text-sm leading-7 text-slate-300">
-                  <p>Answer correctly to damage the boss and build a streak multiplier.</p>
-                  <p>Wrong answers cost health, so speed without accuracy will punish the run.</p>
-                  <p>The backend stores the raid start even in local mock mode.</p>
-                </div>
-              </div>
-
-              <div className="panel rounded-[30px] p-6">
-                <p className="section-label mb-4">Rewards preview</p>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  {[
-                    ['100 XP', 'Victory bonus'],
-                    ['Streak', 'Higher burst damage'],
-                    ['Practice', 'Playable demo loop'],
-                  ].map(([value, label]) => (
-                    <div key={value} className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-                      <p className="text-xl font-black text-white">{value}</p>
-                      <p className="mt-2 text-sm text-slate-400">{label}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {feedbackMessage && (
-                <div className={`rounded-[24px] border px-5 py-4 text-sm leading-7 ${
-                  feedbackType === 'wrong'
-                    ? 'border-rose-300/30 bg-rose-400/10 text-rose-100'
-                    : 'border-cyan-300/30 bg-cyan-400/10 text-cyan-50'
-                }`}>
-                  {feedbackMessage}
-                </div>
-              )}
-
-              <div className="flex flex-wrap gap-3">
+                <p className="section-label mb-4">Create a room</p>
+                <p className="mb-4 text-sm leading-7 text-slate-300">
+                  Start a fresh raid and get a shareable code for your team.
+                </p>
                 <button
                   type="button"
                   onClick={startRaid}
                   disabled={loading}
                   className="rounded-full bg-gradient-to-r from-rose-400 via-orange-400 to-amber-300 px-7 py-4 text-sm font-black uppercase tracking-[0.24em] text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {loading ? 'Opening arena...' : 'Start raid'}
+                  {loading ? 'Opening arena...' : 'Create raid'}
                 </button>
-                <Link
-                  href="/"
-                  className="rounded-full border border-white/10 bg-white/10 px-5 py-4 text-sm font-bold uppercase tracking-[0.2em] text-white transition hover:border-white/20 hover:bg-white/15"
-                >
-                  Back home
-                </Link>
               </div>
+
+              <div className="panel rounded-[30px] p-6">
+                <p className="section-label mb-4">Join a room</p>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <input
+                    type="text"
+                    value={raidCodeInput}
+                    onChange={(event) => setRaidCodeInput(event.target.value.toUpperCase())}
+                    placeholder="Enter raid code"
+                    className="w-full rounded-[20px] border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none transition focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={joinExistingRaid}
+                    disabled={loading || !raidCodeInput.trim()}
+                    className="rounded-full border border-white/10 bg-white/10 px-6 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Join
+                  </button>
+                </div>
+              </div>
+
+              {feedbackMessage && (
+                <div className={`rounded-[24px] border px-5 py-4 text-sm leading-7 ${statusTone}`}>
+                  {feedbackMessage}
+                </div>
+              )}
+
+              {raidSummary && (
+                <div className="panel rounded-[30px] p-6">
+                  <p className="section-label mb-4">Last raid summary</p>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-[22px] border border-white/10 bg-white/5 p-4">
+                      <p className="text-xl font-black text-white capitalize">{raidSummary.status}</p>
+                      <p className="mt-2 text-sm text-slate-400">Outcome</p>
+                    </div>
+                    <div className="rounded-[22px] border border-white/10 bg-white/5 p-4">
+                      <p className="text-xl font-black text-white">{raidSummary.xpReward}</p>
+                      <p className="mt-2 text-sm text-slate-400">XP reward</p>
+                    </div>
+                    <div className="rounded-[22px] border border-white/10 bg-white/5 p-4">
+                      <p className="text-xl font-black text-white">{raidSummary.totalDamage}</p>
+                      <p className="mt-2 text-sm text-slate-400">Total damage</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -200,15 +377,20 @@ export default function RaidPage() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-10">
+    <main className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
       <section className="panel-strong animate-lift-in rounded-[36px] p-6 md:p-8">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="section-label mb-2">Live battle</p>
             <h1 className="text-4xl font-black tracking-tight text-white md:text-5xl">Calculus Titan</h1>
           </div>
-          <div className="rounded-full border border-amber-300/30 bg-amber-300/15 px-4 py-2 text-sm font-black uppercase tracking-[0.2em] text-amber-100">
-            Question {currentQuestionIndex + 1} / {questions.length}
+          <div className="flex flex-wrap gap-3">
+            <div className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm font-black uppercase tracking-[0.2em] text-cyan-50">
+              Raid code {raid.raidId}
+            </div>
+            <div className="rounded-full border border-amber-300/30 bg-amber-300/15 px-4 py-2 text-sm font-black uppercase tracking-[0.2em] text-amber-100">
+              Question {currentQuestionIndex + 1} / {questions.length}
+            </div>
           </div>
         </div>
 
@@ -218,7 +400,7 @@ export default function RaidPage() {
           </div>
           <div className="panel rounded-[28px] p-5">
             <HPBar
-              label={`${user.username} HP`}
+              label="Team HP"
               current={raid.playerHp}
               max={HERO_STATS[user.heroClass].maxHp}
               color="green"
@@ -227,29 +409,53 @@ export default function RaidPage() {
           </div>
         </div>
 
-        <StreakCounter streak={raid.streak} />
+        <div className="mb-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
+          <div>
+            <StreakCounter streak={raid.streak} />
 
-        {feedbackMessage && (
-          <div
-            className={`mb-6 rounded-[24px] border px-5 py-4 text-sm font-semibold leading-7 ${
-              feedbackType === 'correct'
-                ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-100'
-                : feedbackType === 'wrong'
-                  ? 'border-rose-300/30 bg-rose-400/10 text-rose-100'
-                  : 'border-amber-300/30 bg-amber-300/10 text-amber-50'
-            }`}
-          >
-            {feedbackMessage}
+            {feedbackMessage && (
+              <div className={`mb-6 rounded-[24px] border px-5 py-4 text-sm font-semibold leading-7 ${statusTone}`}>
+                {feedbackMessage}
+              </div>
+            )}
+
+            <QuestionCard
+              question={questions[currentQuestionIndex]}
+              onAnswer={handleAnswer}
+              disabled={!connected}
+            />
           </div>
-        )}
 
-        {currentQuestionIndex < questions.length && raid.playerHp > 0 && raid.monsterHp > 0 && (
-          <QuestionCard
-            question={questions[currentQuestionIndex]}
-            onAnswer={handleAnswer}
-            disabled={Boolean(feedbackMessage)}
-          />
-        )}
+          <div className="panel rounded-[28px] p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="section-label">Squad roster</p>
+              <span className="text-sm font-bold uppercase tracking-[0.2em] text-slate-300">
+                {raid.players.length} players
+              </span>
+            </div>
+            <div className="space-y-3">
+              {playerProgress.map((player) => (
+                <div key={player.id} className="rounded-[22px] border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-black text-white">
+                        {player.username || player.id}
+                        {player.id === user.id ? ' (You)' : ''}
+                      </p>
+                      <p className="text-sm text-slate-400">{player.guildId ? `Guild ${player.guildId}` : 'No guild'}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-amber-200">{player.progress.damageDealt} dmg</p>
+                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
+                        {player.progress.correctAnswers} correct
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   );

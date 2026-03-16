@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { GuildRecord, LeaderboardEntry, useLeaderboard } from '@/lib/useAPI';
 
@@ -63,11 +63,28 @@ export default function LeaderboardPage() {
     };
 
     loadLeaderboard();
+    const interval = window.setInterval(loadLeaderboard, 15000);
 
     return () => {
       active = false;
+      window.clearInterval(interval);
     };
   }, [fetchGlobal, fetchGuilds, fetchWeekly, filter]);
+
+  const summary = useMemo(() => {
+    const leader = leaderboard[0];
+    const totalXp = leaderboard.reduce((sum, entry) => sum + entry.xp, 0);
+
+    return {
+      leader: leader?.username || 'N/A',
+      topXp: leader?.xp || 0,
+      averageLevel:
+        leaderboard.length > 0
+          ? (leaderboard.reduce((sum, entry) => sum + entry.level, 0) / leaderboard.length).toFixed(1)
+          : '0.0',
+      totalXp,
+    };
+  }, [leaderboard]);
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
@@ -79,7 +96,7 @@ export default function LeaderboardPage() {
               Make progress impossible to miss.
             </h1>
             <p className="mt-4 max-w-2xl text-lg leading-8 text-slate-300">
-              Compare learners, track weekly surges, and surface guild progress in one strong visual rhythm.
+              Compare learners, track weekly surges, and surface guild progress with automatic live refresh.
             </p>
           </div>
 
@@ -101,6 +118,20 @@ export default function LeaderboardPage() {
           </div>
         </div>
 
+        <div className="mt-6 grid gap-4 sm:grid-cols-4">
+          {[
+            ['Leader', summary.leader],
+            ['Top XP', `${summary.topXp}`],
+            ['Avg level', `${summary.averageLevel}`],
+            ['Pool XP', `${summary.totalXp}`],
+          ].map(([label, value]) => (
+            <div key={label} className="panel rounded-[24px] p-4">
+              <p className="section-label mb-2">{label}</p>
+              <p className="text-xl font-black text-white">{value}</p>
+            </div>
+          ))}
+        </div>
+
         {notice && (
           <div className="mt-6 rounded-[20px] border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
             {notice}
@@ -111,10 +142,10 @@ export default function LeaderboardPage() {
       <section className="mt-8 panel animate-lift-in overflow-hidden rounded-[34px]">
         <div className="grid grid-cols-[0.9fr_2fr_1fr_1.2fr_1.4fr] gap-4 border-b border-white/10 bg-white/5 px-6 py-4 text-xs font-black uppercase tracking-[0.24em] text-slate-400">
           <div>Rank</div>
-          <div>Player</div>
+          <div>{filter === 'guild' ? 'Guild' : 'Player'}</div>
           <div>Level</div>
           <div>XP</div>
-          <div>Guild</div>
+          <div>{filter === 'guild' ? 'Members' : 'Guild'}</div>
         </div>
 
         <div className="divide-y divide-white/10">

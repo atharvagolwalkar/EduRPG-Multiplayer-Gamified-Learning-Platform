@@ -5,8 +5,16 @@ interface User {
   username: string;
   level: number;
   xp: number;
+  totalXp?: number;
   heroClass: 'mage' | 'engineer' | 'scientist';
   guildId?: string;
+  stats?: {
+    wins: number;
+    losses: number;
+    raidsCompleted: number;
+    monsterDefeated: number;
+    totalDamageDealt: number;
+  };
 }
 
 interface RaidState {
@@ -17,6 +25,7 @@ interface RaidState {
   streak: number;
   timeRemaining: number;
   isActive: boolean;
+  playerProgress?: Record<string, { damageDealt: number; correctAnswers: number }>;
 }
 
 interface GameStore {

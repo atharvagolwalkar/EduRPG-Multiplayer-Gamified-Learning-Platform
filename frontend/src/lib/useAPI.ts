@@ -21,6 +21,13 @@ export interface UserRecord {
   totalXp?: number;
   heroClass: HeroClass;
   guildId?: string | null;
+  stats?: {
+    wins: number;
+    losses: number;
+    raidsCompleted: number;
+    monsterDefeated: number;
+    totalDamageDealt: number;
+  };
 }
 
 const normalizeUser = (user: UserRecord): UserRecord & { guildId?: string } => ({
@@ -29,24 +36,29 @@ const normalizeUser = (user: UserRecord): UserRecord & { guildId?: string } => (
 });
 
 export interface RaidPayload {
+  raidId?: string;
   leaderId: string;
   difficulty?: 'easy' | 'medium' | 'hard';
   monsterHp?: number;
   teamHp?: number;
-  players?: Array<{ id: string; username?: string }>;
+  players?: Array<{ id: string; username?: string; guildId?: string }>;
   monsterName?: string;
 }
 
 export interface RaidRecord {
   id: string;
-  players: Array<{ id: string; username?: string }>;
+  players: Array<{ id: string; username?: string; guildId?: string }>;
   monsterName: string;
   monsterMaxHp: number;
   monsterHp: number;
   teamMaxHp: number;
   teamHp: number;
+  endTime?: number | null;
   status: string;
   streak: number;
+  playerProgress?: Record<string, { damageDealt: number; correctAnswers: number }>;
+  correctAnswers?: number;
+  questionsAnswered?: number;
 }
 
 export interface GuildPayload {
@@ -107,6 +119,18 @@ export const useUser = () => {
     return response.data.user ? normalizeUser(response.data.user) : response.data.user;
   }, []);
 
+  const getUsers = useCallback(async () => {
+    const response = await axios.get<{ success: boolean; users: UserRecord[] }>(
+      `${API_URL}/api/users`
+    );
+
+    if (!response.data.success) {
+      throw new Error('Unable to fetch users');
+    }
+
+    return response.data.users.map(normalizeUser);
+  }, []);
+
   const addXP = useCallback(async (userId: string, amount: number) => {
     const response = await axios.post<{ success: boolean; result: { newLevel: number; newTotalXp: number } }>(
       `${API_URL}/api/users/${userId}/xp`,
@@ -120,7 +144,7 @@ export const useUser = () => {
     return response.data.result;
   }, []);
 
-  return { user, createUser, getUser, addXP };
+  return { user, createUser, getUser, getUsers, addXP };
 };
 
 export const useLeaderboard = () => {
@@ -217,7 +241,19 @@ export const useRaid = () => {
     return response.data.raid;
   }, []);
 
-  return { raid, startRaid, getRaid, endRaid };
+  const getRaidHistory = useCallback(async (userId: string) => {
+    const response = await axios.get<{ success: boolean; raids: RaidRecord[] }>(
+      `${API_URL}/api/users/${userId}/raids`
+    );
+
+    if (!response.data.success) {
+      throw new Error('Unable to fetch raid history');
+    }
+
+    return response.data.raids;
+  }, []);
+
+  return { raid, startRaid, getRaid, endRaid, getRaidHistory };
 };
 
 export const useGuild = () => {

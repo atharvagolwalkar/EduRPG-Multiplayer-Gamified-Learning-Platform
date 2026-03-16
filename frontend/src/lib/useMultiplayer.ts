@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 type RaidPlayer = {
   id: string;
   username?: string;
+  guildId?: string;
 };
 
 type RaidEventPayload = Record<string, unknown>;

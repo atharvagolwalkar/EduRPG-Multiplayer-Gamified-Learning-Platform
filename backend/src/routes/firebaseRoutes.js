@@ -26,6 +26,15 @@ export function setupFirebaseRoutes(app) {
     }
   });
 
+  app.get('/api/users', async (req, res) => {
+    try {
+      const users = await UserService.getAllUsers();
+      res.json({ success: true, users });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   app.put('/api/users/:userId', async (req, res) => {
     try {
       await UserService.updateUser(req.params.userId, req.body);
@@ -50,6 +59,7 @@ export function setupFirebaseRoutes(app) {
   app.post('/api/raids/start', async (req, res) => {
     try {
       const payload = {
+        id: req.body.raidId,
         players: req.body.players || (req.body.leaderId ? [{ id: req.body.leaderId }] : []),
         monsterName: req.body.monsterName || 'Calculus Titan',
         monsterMaxHp: req.body.monsterMaxHp || req.body.monsterHp || 100,

@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useGameStore } from '@/lib/store';
-import { GuildRecord, useGuild } from '@/lib/useAPI';
+import { GuildRecord, UserRecord, useGuild, useUser } from '@/lib/useAPI';
 
 const mockGuilds: GuildRecord[] = [
   {
@@ -36,12 +36,14 @@ const mockGuilds: GuildRecord[] = [
     xp: 35000,
     level: 9,
   },
-] as const;
+];
 
 export default function GuildPage() {
   const { user } = useGameStore();
   const { createGuild, getGuildList, addMember } = useGuild();
+  const { getUsers } = useUser();
   const [guilds, setGuilds] = useState<GuildRecord[]>(mockGuilds);
+  const [users, setUsers] = useState<UserRecord[]>([]);
   const [selectedGuild, setSelectedGuild] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [guildName, setGuildName] = useState('');
@@ -52,28 +54,55 @@ export default function GuildPage() {
   useEffect(() => {
     let active = true;
 
-    const loadGuilds = async () => {
+    const loadData = async () => {
       try {
-        const response = await getGuildList();
-        if (active && response.length > 0) {
-          setGuilds(response);
+        const [guildResponse, userResponse] = await Promise.allSettled([getGuildList(), getUsers()]);
+
+        if (active && guildResponse.status === 'fulfilled' && guildResponse.value.length > 0) {
+          setGuilds(guildResponse.value);
+        }
+
+        if (active && userResponse.status === 'fulfilled') {
+          setUsers(userResponse.value);
         }
       } catch (error) {
-        console.error('Error fetching guilds:', error);
+        console.error('Error loading guild data:', error);
       }
     };
 
-    loadGuilds();
+    loadData();
 
     return () => {
       active = false;
     };
-  }, [getGuildList]);
+  }, [getGuildList, getUsers]);
 
   const selectedGuildRecord = useMemo(
     () => guilds.find((guild) => guild.id === selectedGuild) ?? null,
     [guilds, selectedGuild]
   );
+
+  const userMap = useMemo(
+    () => Object.fromEntries(users.map((entry) => [entry.id, entry])),
+    [users]
+  );
+
+  const selectedMembers = useMemo(() => {
+    if (!selectedGuildRecord) {
+      return [];
+    }
+
+    return selectedGuildRecord.members.map((memberId) => {
+      const record = userMap[memberId];
+      return {
+        id: memberId,
+        username: record?.username || memberId,
+        heroClass: record?.heroClass || 'unknown',
+      };
+    });
+  }, [selectedGuildRecord, userMap]);
+
+  const resolvedLeader = selectedGuildRecord ? userMap[selectedGuildRecord.leader]?.username || selectedGuildRecord.leader : '';
 
   const handleCreateGuild = async () => {
     if (!guildName.trim() || !user) {
@@ -124,6 +153,8 @@ export default function GuildPage() {
     }
   };
 
+  const userGuild = guilds.find((guild) => user?.guildId && guild.id === user.guildId) || null;
+
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
       <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
@@ -134,13 +165,13 @@ export default function GuildPage() {
               Build a team identity around learning.
             </h1>
             <p className="max-w-2xl text-lg leading-8 text-slate-300">
-              Guilds make progress feel social. Browse squads, create your own, or claim a spot in one of the active crews.
+              Guilds now show richer detail: member roster, leader identity, current progress, and your guild status.
             </p>
 
             <div className="grid gap-4 sm:grid-cols-3">
               {[
                 ['Active guilds', `${guilds.length}`],
-                ['Your status', user ? 'Eligible to join' : 'Create hero first'],
+                ['Your guild', userGuild?.name || 'None yet'],
                 ['Top reward', 'Shared progression'],
               ].map(([label, value]) => (
                 <div key={label} className="panel rounded-[24px] p-4">
@@ -206,7 +237,22 @@ export default function GuildPage() {
                   </div>
                   <div className="rounded-[18px] border border-white/10 bg-slate-950/40 p-3">
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Leader</p>
-                    <p className="mt-2 text-xl font-black text-white">{selectedGuildRecord.leader}</p>
+                    <p className="mt-2 text-xl font-black text-white">{resolvedLeader}</p>
+                  </div>
+                </div>
+                <div className="mt-5 rounded-[22px] border border-white/10 bg-slate-950/40 p-4">
+                  <p className="section-label mb-3">Member roster</p>
+                  <div className="space-y-2">
+                    {selectedMembers.length > 0 ? (
+                      selectedMembers.map((member) => (
+                        <div key={member.id} className="flex items-center justify-between rounded-[18px] bg-white/5 px-3 py-2">
+                          <span className="font-semibold text-white">{member.username}</span>
+                          <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{member.heroClass}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-slate-400">Member names will appear here as backend users join.</p>
+                    )}
                   </div>
                 </div>
                 <button
