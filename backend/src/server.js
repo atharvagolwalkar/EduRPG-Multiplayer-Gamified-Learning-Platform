@@ -6,25 +6,23 @@ import { Server } from 'socket.io';
 import { setupWebSocket } from './websocket.js';
 import { setupMultiplayerWebSocket } from './multiplaya-websocket.js';
 import { setupFirebaseRoutes } from './routes/firebaseRoutes.js';
+import { isMockFirebase } from './firebase.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Health Check
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     message: 'EduRPG Backend Running',
-    firebase: 'connected',
-    timestamp: new Date().toISOString()
+    firebase: isMockFirebase ? 'mock' : 'connected',
+    timestamp: new Date().toISOString(),
   });
 });
 
-// Create HTTP Server for WebSocket
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
@@ -34,17 +32,13 @@ const io = new Server(server, {
   transports: ['websocket', 'polling'],
 });
 
-// Setup WebSocket namespaces
 setupWebSocket(io);
 setupMultiplayerWebSocket(io);
-
-// Setup Firebase Routes
 setupFirebaseRoutes(app);
 
-// Simple API Routes (backward compatibility)
 app.post('/api/auth/register', (req, res) => {
-  const { username, email, password } = req.body;
-  // Mock registration
+  const { username, email } = req.body;
+
   res.json({
     success: true,
     message: 'User registered',
@@ -53,8 +47,8 @@ app.post('/api/auth/register', (req, res) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
-  // Mock login
+  const { username } = req.body;
+
   res.json({
     success: true,
     token: 'mock_jwt_token',
@@ -72,30 +66,11 @@ app.get('/api/leaderboard', (req, res) => {
   });
 });
 
-// Start Server
 server.listen(port, () => {
-  console.log(`
-    ╔════════════════════════════════════╗
-    ║   🚀 EduRPG Backend Running        ║
-    ║   Port: ${port}                      ║
-    ║   WebSocket: Active                ║
-    ║   Firebase: Connected              ║
-    ║   API: Ready                       ║
-    ╚════════════════════════════════════╝
-  `);
-  console.log(`
-    📡 WebSocket Namespaces:
-    • /raids (multiplayer raids)
-    • / (general events)
-    
-    📚 API Routes:
-    • POST /api/users/create
-    • GET /api/users/:userId
-    • POST /api/raids/start
-    • GET /api/leaderboard/global
-    • POST /api/guilds/create
-    • GET /api/guilds
-  `);
+  console.log(`EduRPG backend running on port ${port}`);
+  console.log(`Firebase mode: ${isMockFirebase ? 'mock development store' : 'connected'}`);
+  console.log('WebSocket namespaces: /raids, /');
+  console.log('API routes: /api/users/create, /api/raids/start, /api/leaderboard/global, /api/guilds/create');
 });
 
 export default app;

@@ -1,5 +1,10 @@
 import { UserService, RaidService, GuildService, LeaderboardService } from '../services/FirebaseService.js';
 
+function parseLimit(value, fallback = 10) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 export function setupFirebaseRoutes(app) {
   // ==================== USER ROUTES ====================
 
@@ -44,7 +49,14 @@ export function setupFirebaseRoutes(app) {
 
   app.post('/api/raids/start', async (req, res) => {
     try {
-      const raid = await RaidService.startRaid(req.body);
+      const payload = {
+        players: req.body.players || (req.body.leaderId ? [{ id: req.body.leaderId }] : []),
+        monsterName: req.body.monsterName || 'Calculus Titan',
+        monsterMaxHp: req.body.monsterMaxHp || req.body.monsterHp || 100,
+        teamMaxHp: req.body.teamMaxHp || req.body.teamHp || 100,
+      };
+
+      const raid = await RaidService.startRaid(payload);
       res.json({ success: true, raid });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -96,7 +108,13 @@ export function setupFirebaseRoutes(app) {
 
   app.post('/api/guilds/create', async (req, res) => {
     try {
-      const guild = await GuildService.createGuild(req.body);
+      const payload = {
+        name: req.body.name,
+        description: req.body.description || '',
+        leader: req.body.leader || req.body.leaderId || 'local-user',
+      };
+
+      const guild = await GuildService.createGuild(payload);
       res.json({ success: true, guild });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -150,7 +168,7 @@ export function setupFirebaseRoutes(app) {
 
   app.get('/api/guilds/leaderboard', async (req, res) => {
     try {
-      const leaderboard = await GuildService.getLeaderboard(req.query.limit || 10);
+      const leaderboard = await GuildService.getLeaderboard(parseLimit(req.query.limit));
       res.json({ success: true, leaderboard });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -162,7 +180,7 @@ export function setupFirebaseRoutes(app) {
   app.get('/api/leaderboard/global', async (req, res) => {
     try {
       const leaderboard = await LeaderboardService.getGlobalLeaderboard(
-        req.query.limit || 10
+        parseLimit(req.query.limit)
       );
       res.json({ success: true, leaderboard });
     } catch (error) {
@@ -173,7 +191,7 @@ export function setupFirebaseRoutes(app) {
   app.get('/api/leaderboard/weekly', async (req, res) => {
     try {
       const leaderboard = await LeaderboardService.getWeeklyLeaderboard(
-        req.query.limit || 10
+        parseLimit(req.query.limit)
       );
       res.json({ success: true, leaderboard });
     } catch (error) {
@@ -184,7 +202,7 @@ export function setupFirebaseRoutes(app) {
   app.get('/api/leaderboard/guilds', async (req, res) => {
     try {
       const leaderboard = await LeaderboardService.getGuildLeaderboard(
-        req.query.limit || 10
+        parseLimit(req.query.limit)
       );
       res.json({ success: true, leaderboard });
     } catch (error) {

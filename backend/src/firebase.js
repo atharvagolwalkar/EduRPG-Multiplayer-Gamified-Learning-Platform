@@ -1,32 +1,194 @@
 import admin from 'firebase-admin';
 import process from 'process';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-const serviceAccountPath = resolve('./serviceAccountKey.json');
+class MockDocumentSnapshot {
+  constructor(data) {
+    this._data = data;
+    this.exists = data !== undefined;
+  }
 
-let serviceAccount;
-try {
-  serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf8'));
-} catch (error) {
-  console.warn('⚠️  serviceAccountKey.json not found. Using environment variables.');
-  serviceAccount = {
-    project_id: process.env.FIREBASE_PROJECT_ID,
-    private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    client_email: process.env.FIREBASE_CLIENT_EMAIL,
-  };
+  data() {
+    return this._data;
+  }
 }
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  projectId: process.env.FIREBASE_PROJECT_ID,
-});
+class MockQuerySnapshot {
+  constructor(docs) {
+    this.docs = docs.map((doc) => ({
+      data: () => doc,
+    }));
+  }
+}
 
-export const db = admin.firestore();
-export const realtimeDb = admin.database();
-export const auth = admin.auth();
+class MockDocumentReference {
+  constructor(store, collectionName, id) {
+    this.store = store;
+    this.collectionName = collectionName;
+    this.id = id;
+  }
 
-// Firestore settings
-db.settings({ ignoreUndefinedProperties: true });
+  async set(data) {
+    const collection = this.store.getCollection(this.collectionName);
+    collection.set(this.id, structuredClone({ ...data, id: data.id ?? this.id }));
+  }
 
-export default admin;
+  async update(updates) {
+    const collection = this.store.getCollection(this.collectionName);
+    const existing = collection.get(this.id);
+    if (!existing) {
+      throw new Error(`Document "${this.collectionName}/${this.id}" does not exist`);
+    }
+
+    collection.set(this.id, structuredClone({ ...existing, ...updates }));
+  }
+
+  async get() {
+    const collection = this.store.getCollection(this.collectionName);
+    return new MockDocumentSnapshot(collection.get(this.id));
+  }
+}
+
+class MockQuery {
+  constructor(store, collectionName, clauses = [], order = null, limitValue = null) {
+    this.store = store;
+    this.collectionName = collectionName;
+    this.clauses = clauses;
+    this.order = order;
+    this.limitValue = limitValue;
+  }
+
+  where(field, operator, value) {
+    return new MockQuery(this.store, this.collectionName, [...this.clauses, { field, operator, value }], this.order, this.limitValue);
+  }
+
+  orderBy(field, direction = 'asc') {
+    return new MockQuery(this.store, this.collectionName, this.clauses, { field, direction }, this.limitValue);
+  }
+
+  limit(value) {
+    return new MockQuery(this.store, this.collectionName, this.clauses, this.order, Number(value));
+  }
+
+  doc(id) {
+    return new MockDocumentReference(this.store, this.collectionName, id);
+  }
+
+  async get() {
+    let docs = [...this.store.getCollection(this.collectionName).values()];
+
+    for (const clause of this.clauses) {
+      docs = docs.filter((doc) => {
+        const current = doc?.[clause.field];
+        switch (clause.operator) {
+          case '==':
+            return current === clause.value;
+          case '>=':
+            return current >= clause.value;
+          default:
+            throw new Error(`Unsupported mock where operator: ${clause.operator}`);
+        }
+      });
+    }
+
+    if (this.order) {
+      const direction = this.order.direction === 'desc' ? -1 : 1;
+      docs.sort((a, b) => {
+        const left = a?.[this.order.field];
+        const right = b?.[this.order.field];
+        if (left === right) return 0;
+        if (left === undefined) return 1;
+        if (right === undefined) return -1;
+        return left > right ? direction : -direction;
+      });
+    }
+
+    if (typeof this.limitValue === 'number' && !Number.isNaN(this.limitValue)) {
+      docs = docs.slice(0, this.limitValue);
+    }
+
+    return new MockQuerySnapshot(docs);
+  }
+}
+
+class MockFirestoreStore {
+  constructor() {
+    this.collections = new Map();
+  }
+
+  getCollection(name) {
+    if (!this.collections.has(name)) {
+      this.collections.set(name, new Map());
+    }
+
+    return this.collections.get(name);
+  }
+}
+
+class MockFirestore {
+  constructor() {
+    this.store = new MockFirestoreStore();
+  }
+
+  collection(name) {
+    return new MockQuery(this.store, name);
+  }
+
+  settings() {
+    return undefined;
+  }
+}
+
+function initializeFirebase() {
+  const serviceAccountPath = resolve('./serviceAccountKey.json');
+
+  try {
+    const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf8'));
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+      projectId: process.env.FIREBASE_PROJECT_ID ?? serviceAccount.project_id,
+    });
+
+    console.log('Firebase initialized with serviceAccountKey.json');
+    return {
+      adminApp: admin,
+      db: admin.firestore(),
+      realtimeDb: safeAccess(() => admin.database(), 'Realtime Database not configured. Using Firestore only.'),
+      auth: safeAccess(() => admin.auth(), 'Authentication not configured.'),
+      isMock: false,
+    };
+  } catch (error) {
+    console.warn('serviceAccountKey.json not found. Using in-memory mock services for local development.');
+    const mockDb = new MockFirestore();
+    return {
+      adminApp: null,
+      db: mockDb,
+      realtimeDb: null,
+      auth: null,
+      isMock: true,
+    };
+  }
+}
+
+function safeAccess(factory, message) {
+  try {
+    return factory();
+  } catch (error) {
+    console.warn(message);
+    return null;
+  }
+}
+
+const firebase = initializeFirebase();
+
+export const db = firebase.db;
+export const realtimeDb = firebase.realtimeDb;
+export const auth = firebase.auth;
+export const isMockFirebase = firebase.isMock;
+
+if (!isMockFirebase && typeof db.settings === 'function') {
+  db.settings({ ignoreUndefinedProperties: true });
+}
+
+export default firebase.adminApp ?? admin;

@@ -8,6 +8,12 @@ interface HPBarProps {
   showAnimation?: boolean;
 }
 
+const BAR_STYLES = {
+  red: 'from-rose-500 via-red-500 to-orange-400',
+  green: 'from-emerald-400 via-green-500 to-lime-400',
+  blue: 'from-cyan-400 via-sky-500 to-indigo-500',
+} as const;
+
 export const HPBar: React.FC<HPBarProps> = ({
   current,
   max,
@@ -15,33 +21,32 @@ export const HPBar: React.FC<HPBarProps> = ({
   color = 'red',
   showAnimation = false,
 }) => {
-  const percentage = (current / max) * 100;
-  const colorClasses: Record<string, string> = {
-    red: 'bg-red-500',
-    green: 'bg-green-500',
-    blue: 'bg-blue-500',
-  };
+  const percentage = max > 0 ? Math.max(0, Math.min(100, (current / max) * 100)) : 0;
 
   return (
-    <div className="mb-4">
-      <div className="flex justify-between items-center mb-2">
-        <span className="text-white font-semibold">{label}</span>
-        <span className="text-gray-300">
-          {current}/{max}
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
+          {label}
+        </span>
+        <span className="text-sm font-bold text-white">
+          {Math.max(0, current)}/{max}
         </span>
       </div>
-      <div className="w-full bg-gray-700 rounded-full h-8 overflow-hidden border-2 border-gray-600">
+
+      <div className="h-4 overflow-hidden rounded-full border border-white/10 bg-slate-950/70">
         <div
-          className={`h-full ${colorClasses[color]} transition-all duration-500 ${
+          className={`h-full rounded-full bg-gradient-to-r ${BAR_STYLES[color]} transition-all duration-500 ${
             showAnimation ? 'animate-pulse' : ''
           }`}
-          style={{ width: `${Math.max(0, percentage)}%` }}
-        >
-          <div className="h-full opacity-50 animate-pulse"></div>
-        </div>
+          style={{ width: `${percentage}%` }}
+        />
       </div>
+
       {percentage < 25 && (
-        <p className="text-red-400 text-sm mt-1">⚠️ Low health!</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-300">
+          Low health
+        </p>
       )}
     </div>
   );

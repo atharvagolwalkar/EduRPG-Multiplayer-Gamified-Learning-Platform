@@ -12,9 +12,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-gray-900 text-white overflow-x-hidden">
-        {children}
+    <html lang="en" className="scroll-smooth">
+      <body className="overflow-x-hidden text-white">
+        <div className="app-shell">{children}</div>
       </body>
     </html>
   );

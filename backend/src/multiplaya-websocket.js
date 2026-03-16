@@ -1,4 +1,4 @@
-import { RaidService, UserService, GuildService } from '../services/FirebaseService.js';
+import { RaidService, UserService, GuildService } from './services/FirebaseService.js';
 
 const activeRaids = new Map(); // In-memory tracking for real-time sync
 
