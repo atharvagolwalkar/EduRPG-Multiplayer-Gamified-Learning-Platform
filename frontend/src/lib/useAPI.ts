@@ -28,6 +28,17 @@ export interface UserRecord {
     monsterDefeated: number;
     totalDamageDealt: number;
   };
+  progression?: {
+    mastery: Record<string, Record<string, { attempts: number; correct: number; masteryScore: number }>>;
+    unlockedSkills: string[];
+    progressionHistory: Array<{
+      type: string;
+      subject: string;
+      concept: string;
+      correct: boolean;
+      timestamp: string;
+    }>;
+  };
 }
 
 const normalizeUser = (user: UserRecord): UserRecord & { guildId?: string } => ({
@@ -76,6 +87,8 @@ export interface GuildRecord {
   memberCount: number;
   xp: number;
   level: number;
+  rewards?: string[];
+  achievements?: string[];
 }
 
 export interface LeaderboardEntry {

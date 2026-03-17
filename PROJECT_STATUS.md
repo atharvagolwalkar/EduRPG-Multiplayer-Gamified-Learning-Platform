@@ -20,6 +20,7 @@ EduRPG is a multiplayer gamified learning platform where undergraduate students 
   - guild creation, listing, joining, and XP updates
   - global, weekly, and guild leaderboards
 - Health check endpoint exists in `backend/src/server.js`.
+- Firebase status endpoint exists for runtime visibility and setup verification.
 
 ### 3. Local development backend fix
 - The backend now supports an in-memory mock database when Firebase credentials are missing.
@@ -49,6 +50,9 @@ EduRPG is a multiplayer gamified learning platform where undergraduate students 
 - richer guild detail with member roster and leader display
 - Leaderboard page supports live fetch, clearer global/weekly/guild distinction, fallback data, and timed refresh.
 - Profile page supports backend refresh, real stat cards, and raid history display.
+- Raid gameplay now feeds subject/concept mastery updates and adaptive question difficulty.
+- Profile now shows mastery summaries, unlocked skills, and progression history.
+- Guild detail now shows rewards and achievements tied to guild progress.
 
 ### 6. UI improvement work completed
 - The dull UI was redesigned into a more intentional game-like visual style.
@@ -67,42 +71,48 @@ EduRPG is a multiplayer gamified learning platform where undergraduate students 
 - TypeScript check passes with:
   - `node .\node_modules\typescript\bin\tsc --noEmit`
 
+### 8. Progression systems
+- Users now persist progression data with:
+  - concept mastery buckets
+  - unlocked skills
+  - progression history
+- Raid answers now update mastery and progression data on the backend.
+- Adaptive raid difficulty now reacts to subject mastery and player level.
+- Skill tree UI now reflects real unlocked skills for each hero class.
+
+### 9. Guild progression depth
+- Guilds now persist rewards and achievement data.
+- Guild detail UI shows:
+  - member roster
+  - leader identity
+  - unlocked guild rewards
+  - guild achievements
+
+### 10. Firebase integration hardening
+- Backend now supports Firebase credentials from either:
+  - `backend/serviceAccountKey.json`
+  - environment variables
+- Frontend Firebase config is now validated before initialization.
+- Environment template files now exist:
+  - `backend/.env.example`
+  - `frontend/.env.example`
+- Firestore security rules template now exists in `firestore.rules`.
+- Backend health/status endpoints now report whether Firebase is running in mock mode or real mode.
+
 ---
 
 ## What Is Partially Done
 
-### 1. Firebase integration
+### 1. Firebase activation in a real project
 Current state:
-- Firebase-style service layer exists.
-- Local mock mode works.
+- the codebase fully supports real Firebase configuration
+- env templates, runtime status reporting, and rules template are in place
+- mock mode still works for local development
 
 Still needed:
-- real Firebase credentials setup
-- real Firestore persistence validation
-- auth rules / security rules
-- production-ready environment configuration
-
-### 2. Learning progression systems
-Current state:
-- level and XP exist
-- raid stats now update on the backend
-- profile shows real raid history and stat totals
-
-Still needed:
-- long-term progression history views
-- concept mastery model
-- skill unlock relationships tied to actual learning
-
-### 3. Guild progression depth
-Current state:
-- create/list/join flows exist
-- guild XP logic exists on backend
-- richer guild detail and roster UI now exist
-
-Still needed:
-- shared rewards UI
-- guild achievements
-- guild-specific progression bonuses or perks
+- plug in real Firebase project credentials
+- validate reads/writes against your real Firestore project
+- deploy final auth/security rules to that project
 
 ---
 
@@ -175,9 +185,9 @@ Not built yet:
 
 ### Phase 2: Add learning depth
 1. Implement subject/topic-based question pools.
-2. Add adaptive difficulty.
+2. Expand adaptive difficulty beyond the current mastery/level model.
 3. Add answer explanations and hint support.
-4. Add real achievement logic.
+4. Add richer achievement logic and branching skill unlocks.
 
 ### Phase 3: Add signature EduRPG features
 1. Build skill trees for each hero class.
@@ -207,10 +217,10 @@ It already has:
 But it is not yet the full EduRPG concept.
 
 The biggest missing pieces are:
-- adaptive learning
-- skill trees
+- deeper adaptive learning beyond current mastery-based difficulty
+- advanced skill tree progression and branching upgrades
 - AI Dungeon Master
-- real educational progression systems
+- broader educational progression systems across all subjects
 - production-grade Firebase/auth setup
 
 ---

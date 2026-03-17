@@ -15,6 +15,17 @@ interface User {
     monsterDefeated: number;
     totalDamageDealt: number;
   };
+  progression?: {
+    mastery: Record<string, Record<string, { attempts: number; correct: number; masteryScore: number }>>;
+    unlockedSkills: string[];
+    progressionHistory: Array<{
+      type: string;
+      subject: string;
+      concept: string;
+      correct: boolean;
+      timestamp: string;
+    }>;
+  };
 }
 
 interface RaidState {

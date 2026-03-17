@@ -144,19 +144,20 @@ function initializeFirebase() {
   const serviceAccountPath = resolve('./serviceAccountKey.json');
 
   try {
-    const serviceAccount = JSON.parse(readFileSync(serviceAccountPath, 'utf8'));
+    const serviceAccount = loadServiceAccount(serviceAccountPath);
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
       projectId: process.env.FIREBASE_PROJECT_ID ?? serviceAccount.project_id,
     });
 
-    console.log('Firebase initialized with serviceAccountKey.json');
+    console.log('Firebase initialized with real credentials');
     return {
       adminApp: admin,
       db: admin.firestore(),
       realtimeDb: safeAccess(() => admin.database(), 'Realtime Database not configured. Using Firestore only.'),
       auth: safeAccess(() => admin.auth(), 'Authentication not configured.'),
       isMock: false,
+      configSource: process.env.FIREBASE_CLIENT_EMAIL ? 'env' : 'serviceAccountKey.json',
     };
   } catch (error) {
     console.warn('serviceAccountKey.json not found. Using in-memory mock services for local development.');
@@ -167,8 +168,21 @@ function initializeFirebase() {
       realtimeDb: null,
       auth: null,
       isMock: true,
+      configSource: 'mock',
     };
   }
+}
+
+function loadServiceAccount(serviceAccountPath) {
+  if (process.env.FIREBASE_CLIENT_EMAIL && process.env.FIREBASE_PRIVATE_KEY) {
+    return {
+      project_id: process.env.FIREBASE_PROJECT_ID,
+      client_email: process.env.FIREBASE_CLIENT_EMAIL,
+      private_key: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    };
+  }
+
+  return JSON.parse(readFileSync(serviceAccountPath, 'utf8'));
 }
 
 function safeAccess(factory, message) {
@@ -186,6 +200,7 @@ export const db = firebase.db;
 export const realtimeDb = firebase.realtimeDb;
 export const auth = firebase.auth;
 export const isMockFirebase = firebase.isMock;
+export const firebaseConfigSource = firebase.configSource;
 
 if (!isMockFirebase && typeof db.settings === 'function') {
   db.settings({ ignoreUndefinedProperties: true });

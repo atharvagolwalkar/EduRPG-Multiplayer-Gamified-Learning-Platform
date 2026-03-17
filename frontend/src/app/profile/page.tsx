@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useGameStore } from '@/lib/store';
 import { RaidRecord, useRaid, useUser } from '@/lib/useAPI';
+import { getMasterySummary, SKILL_TREES } from '@/lib/progression';
 
 const HERO_EMOJIS: Record<'mage' | 'engineer' | 'scientist', string> = {
   mage: '🔮',
@@ -70,6 +71,9 @@ export default function ProfilePage() {
     monsterDefeated: 0,
     totalDamageDealt: 0,
   };
+  const masterySummary = getMasterySummary(user);
+  const unlockedSkills = user.progression?.unlockedSkills || [];
+  const progressionHistory = user.progression?.progressionHistory || [];
 
   const achievements = useMemo(
     () => [
@@ -181,6 +185,40 @@ export default function ProfilePage() {
               ))}
             </div>
           </div>
+
+          <div className="panel animate-lift-in rounded-[30px] p-6">
+            <p className="section-label mb-4">Mastery map</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {Object.entries(masterySummary).map(([subject, score]) => (
+                <div key={subject} className="rounded-[22px] border border-white/10 bg-white/5 p-4">
+                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">{subject}</p>
+                  <p className="mt-2 text-2xl font-black text-white">{score}%</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="panel animate-lift-in rounded-[30px] p-6">
+            <p className="section-label mb-4">Skill tree</p>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {SKILL_TREES[user.heroClass].map((skill) => {
+                const unlocked = unlockedSkills.includes(skill.id);
+                return (
+                  <div
+                    key={skill.id}
+                    className={`rounded-[22px] border p-4 ${
+                      unlocked
+                        ? 'border-cyan-300/30 bg-cyan-400/10 text-cyan-50'
+                        : 'border-white/10 bg-white/5 text-slate-400'
+                    }`}
+                  >
+                    <p className="text-lg font-black">{skill.label}</p>
+                    <p className="mt-2 text-sm">{unlocked ? 'Unlocked' : 'Locked'}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         <div className="panel animate-lift-in rounded-[30px] p-6">
@@ -213,6 +251,32 @@ export default function ProfilePage() {
                 No completed raids yet. Run a squad battle to start building history.
               </div>
             )}
+          </div>
+
+          <div className="mt-6">
+            <p className="section-label mb-3">Progression history</p>
+            <div className="space-y-2">
+              {progressionHistory.length > 0 ? (
+                progressionHistory
+                  .slice()
+                  .reverse()
+                  .slice(0, 6)
+                  .map((entry, index) => (
+                    <div key={`${entry.timestamp}-${index}`} className="rounded-[18px] border border-white/10 bg-white/5 px-3 py-2">
+                      <p className="text-sm font-semibold text-white">
+                        {entry.correct ? 'Correct' : 'Incorrect'} answer in {entry.subject}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {entry.concept} • {new Date(entry.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                  ))
+              ) : (
+                <div className="rounded-[18px] border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-400">
+                  Answer questions in raids to build your progression timeline.
+                </div>
+              )}
+            </div>
           </div>
 
           {notice && (

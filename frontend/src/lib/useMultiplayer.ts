@@ -56,13 +56,15 @@ export const useMultiplayerRaid = (raidId: string | null) => {
   );
 
   const submitAnswer = useCallback(
-    (isCorrect: boolean, damage: number, streak: number) => {
+    (isCorrect: boolean, damage: number, streak: number, subject?: string, concept?: string) => {
       if (socketRef.current && raidId) {
         socketRef.current.emit('raid:answer', {
           raidId,
           isCorrect,
           damage,
           streak,
+          subject,
+          concept,
         });
       }
     },

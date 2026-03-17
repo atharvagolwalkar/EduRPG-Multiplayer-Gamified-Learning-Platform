@@ -86,7 +86,7 @@ export function setupMultiplayerWebSocket(io) {
 
     socket.on('raid:answer', async (data) => {
       try {
-        const { raidId, isCorrect, damage, streak } = data;
+        const { raidId, isCorrect, damage, streak, subject, concept } = data;
         const raid = activeRaids.get(raidId) || (await RaidService.getRaid(raidId));
 
         if (!raid) {
@@ -114,6 +114,12 @@ export function setupMultiplayerWebSocket(io) {
         }
 
         raid.questionsAnswered = (raid.questionsAnswered || 0) + 1;
+
+        await UserService.recordQuestionOutcome(playerId, {
+          subject,
+          concept,
+          isCorrect,
+        });
 
         await RaidService.updateRaid(raidId, {
           monsterHp: raid.monsterHp,

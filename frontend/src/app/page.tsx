@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { HeroCard } from '@/components/HeroCard';
 import { HERO_STATS } from '@/lib/gameEngine';
 import { useGameStore } from '@/lib/store';
 import { useUser } from '@/lib/useAPI';
+import { isFirebaseConfigured, missingFirebaseConfig } from '@/lib/firebase';
 
 const DESTINATIONS = [
   {
@@ -46,6 +47,21 @@ export default function Home() {
   const [showHeroSelect, setShowHeroSelect] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [backendFirebaseMode, setBackendFirebaseMode] = useState<'loading' | 'mock' | 'connected'>('loading');
+
+  useEffect(() => {
+    const loadStatus = async () => {
+      try {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/system/firebase-status`);
+        const data = await response.json();
+        setBackendFirebaseMode(data.firebase?.mode === 'connected' ? 'connected' : 'mock');
+      } catch (error) {
+        setBackendFirebaseMode('mock');
+      }
+    };
+
+    loadStatus();
+  }, []);
 
   const handleStartGame = async () => {
     if (!username.trim() || !selectedHero) {
@@ -182,6 +198,21 @@ export default function Home() {
                 <p className="mt-2 text-sm leading-7 text-slate-300">{description}</p>
               </div>
             ))}
+          </div>
+
+          <div className="panel rounded-[24px] p-5">
+            <p className="section-label mb-3">Firebase readiness</p>
+            <p className="text-sm leading-7 text-slate-300">
+              Backend mode: <span className="font-bold text-white">{backendFirebaseMode}</span>
+            </p>
+            <p className="text-sm leading-7 text-slate-300">
+              Frontend config: <span className="font-bold text-white">{isFirebaseConfigured ? 'complete' : 'missing keys'}</span>
+            </p>
+            {!isFirebaseConfigured && (
+              <p className="mt-2 text-xs text-slate-400">
+                Missing: {missingFirebaseConfig.join(', ')}
+              </p>
+            )}
           </div>
         </div>
 

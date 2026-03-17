@@ -6,7 +6,7 @@ import { Server } from 'socket.io';
 import { setupWebSocket } from './websocket.js';
 import { setupMultiplayerWebSocket } from './multiplaya-websocket.js';
 import { setupFirebaseRoutes } from './routes/firebaseRoutes.js';
-import { isMockFirebase } from './firebase.js';
+import { firebaseConfigSource, isMockFirebase } from './firebase.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -19,7 +19,19 @@ app.get('/health', (req, res) => {
     status: 'ok',
     message: 'EduRPG Backend Running',
     firebase: isMockFirebase ? 'mock' : 'connected',
+    firebaseConfigSource,
     timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/api/system/firebase-status', (req, res) => {
+  res.json({
+    success: true,
+    firebase: {
+      mode: isMockFirebase ? 'mock' : 'connected',
+      configSource: firebaseConfigSource,
+      projectId: process.env.FIREBASE_PROJECT_ID || null,
+    },
   });
 });
 
@@ -69,6 +81,7 @@ app.get('/api/leaderboard', (req, res) => {
 server.listen(port, () => {
   console.log(`EduRPG backend running on port ${port}`);
   console.log(`Firebase mode: ${isMockFirebase ? 'mock development store' : 'connected'}`);
+  console.log(`Firebase config source: ${firebaseConfigSource}`);
   console.log('WebSocket namespaces: /raids, /');
   console.log('API routes: /api/users/create, /api/raids/start, /api/leaderboard/global, /api/guilds/create');
 });

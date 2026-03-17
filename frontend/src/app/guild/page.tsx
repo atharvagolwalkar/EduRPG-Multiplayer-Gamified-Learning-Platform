@@ -255,6 +255,36 @@ export default function GuildPage() {
                     )}
                   </div>
                 </div>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-[22px] border border-white/10 bg-slate-950/40 p-4">
+                    <p className="section-label mb-3">Guild rewards</p>
+                    <div className="space-y-2">
+                      {(selectedGuildRecord.rewards || []).length > 0 ? (
+                        selectedGuildRecord.rewards?.map((reward) => (
+                          <div key={reward} className="rounded-[18px] bg-white/5 px-3 py-2 text-sm text-white">
+                            {reward}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-400">Reach higher guild levels to unlock rewards.</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="rounded-[22px] border border-white/10 bg-slate-950/40 p-4">
+                    <p className="section-label mb-3">Guild achievements</p>
+                    <div className="space-y-2">
+                      {(selectedGuildRecord.achievements || []).length > 0 ? (
+                        selectedGuildRecord.achievements?.map((achievement) => (
+                          <div key={achievement} className="rounded-[18px] bg-white/5 px-3 py-2 text-sm text-white">
+                            {achievement}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-400">Complete raids and grow the roster to earn achievements.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
                 <button
                   type="button"
                   onClick={() => handleJoinGuild(selectedGuildRecord.id)}

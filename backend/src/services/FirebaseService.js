@@ -1,5 +1,12 @@
 import { db } from '../firebase.js';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  computeUnlockedSkills,
+  createInitialProgression,
+  getSubjectMasteryAverage,
+  updateMasteryBucket,
+} from '../config/progression.js';
+import { enrichGuildProgression } from '../config/guildProgression.js';
 
 export class UserService {
   static async createUser(userData) {
@@ -22,6 +29,7 @@ export class UserService {
         monsterDefeated: 0,
         totalDamageDealt: 0,
       },
+      progression: createInitialProgression(userData.heroClass),
     };
 
     await db.collection('users').doc(userId).set(user);
@@ -70,6 +78,50 @@ export class UserService {
 
     await this.updateUser(userId, { stats: nextStats });
     return nextStats;
+  }
+
+  static async recordQuestionOutcome(userId, payload) {
+    const user = await this.getUser(userId);
+    if (!user) return null;
+
+    const subject = payload.subject || 'general';
+    const concept = payload.concept || 'general';
+    const progression = user.progression || createInitialProgression(user.heroClass);
+    const nextMastery = {
+      ...progression.mastery,
+      [subject]: updateMasteryBucket(progression.mastery?.[subject], concept, payload.isCorrect),
+    };
+    const unlockedSkills = computeUnlockedSkills(user.heroClass, user.level, nextMastery);
+    const progressionHistory = [
+      ...(progression.progressionHistory || []),
+      {
+        type: 'question',
+        subject,
+        concept,
+        correct: payload.isCorrect,
+        timestamp: new Date().toISOString(),
+      },
+    ].slice(-25);
+
+    const updatedProgression = {
+      mastery: nextMastery,
+      unlockedSkills,
+      progressionHistory,
+    };
+
+    await this.updateUser(userId, { progression: updatedProgression });
+    return updatedProgression;
+  }
+
+  static getMasterySummary(user) {
+    const mastery = user.progression?.mastery || {};
+
+    return {
+      mathematics: getSubjectMasteryAverage(mastery.mathematics),
+      programming: getSubjectMasteryAverage(mastery.programming),
+      physics: getSubjectMasteryAverage(mastery.physics),
+      general: getSubjectMasteryAverage(mastery.general),
+    };
   }
 
   static async getLeaderboard(limit = 10) {
@@ -173,7 +225,7 @@ export class RaidService {
 export class GuildService {
   static async createGuild(guildData) {
     const guildId = uuidv4();
-    const guild = {
+    const guild = enrichGuildProgression({
       id: guildId,
       name: guildData.name,
       description: guildData.description,
@@ -184,7 +236,7 @@ export class GuildService {
       level: 1,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    };
+    });
 
     await db.collection('guilds').doc(guildId).set(guild);
     return guild;
@@ -206,11 +258,12 @@ export class GuildService {
     guild.members.push(userId);
     guild.memberCount = guild.members.length;
     guild.updatedAt = new Date().toISOString();
+    const enrichedGuild = enrichGuildProgression(guild);
 
-    await db.collection('guilds').doc(guildId).set(guild);
+    await db.collection('guilds').doc(guildId).set(enrichedGuild);
     await UserService.updateUser(userId, { guildId });
 
-    return guild;
+    return enrichedGuild;
   }
 
   static async removeMember(guildId, userId) {
@@ -219,11 +272,13 @@ export class GuildService {
 
     guild.members = guild.members.filter((id) => id !== userId);
     guild.memberCount = guild.members.length;
+    guild.updatedAt = new Date().toISOString();
+    const enrichedGuild = enrichGuildProgression(guild);
 
-    await db.collection('guilds').doc(guildId).set(guild);
+    await db.collection('guilds').doc(guildId).set(enrichedGuild);
     await UserService.updateUser(userId, { guildId: null });
 
-    return guild;
+    return enrichedGuild;
   }
 
   static async addXP(guildId, xpAmount) {
@@ -233,9 +288,10 @@ export class GuildService {
     guild.xp = (guild.xp || 0) + xpAmount;
     guild.level = Math.floor(guild.xp / 1000) + 1;
     guild.updatedAt = new Date().toISOString();
+    const enrichedGuild = enrichGuildProgression(guild);
 
-    await db.collection('guilds').doc(guildId).set(guild);
-    return guild;
+    await db.collection('guilds').doc(guildId).set(enrichedGuild);
+    return enrichedGuild;
   }
 
   static async getLeaderboard(limit = 10) {

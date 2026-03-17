@@ -23,10 +23,19 @@ export const QuestionCard: React.FC<QuestionCardProps> = ({
             {question.body}
           </h3>
         </div>
-        <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-cyan-100">
-          Difficulty {question.difficulty}
-        </span>
+        <div className="flex flex-wrap gap-2">
+          <span className="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-cyan-100">
+            Difficulty {question.difficulty}
+          </span>
+          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-amber-100">
+            {question.subject}
+          </span>
+        </div>
       </div>
+
+      <p className="mb-6 text-sm uppercase tracking-[0.2em] text-slate-400">
+        Concept: {question.concept}
+      </p>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {question.options.map((option, index) => {

@@ -12,9 +12,14 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const database = getDatabase(app);
-export const firestore = getFirestore(app);
+const requiredKeys = Object.entries(firebaseConfig).filter(([, value]) => !value);
+export const isFirebaseConfigured = requiredKeys.length === 0;
+export const missingFirebaseConfig = requiredKeys.map(([key]) => key);
+
+const app = isFirebaseConfigured ? initializeApp(firebaseConfig) : null;
+
+export const auth = app ? getAuth(app) : null;
+export const database = app ? getDatabase(app) : null;
+export const firestore = app ? getFirestore(app) : null;
 
 export default app;

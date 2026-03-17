@@ -1,14 +1,15 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { HPBar } from '@/components/HPBar';
 import { QuestionCard } from '@/components/QuestionCard';
 import { StreakCounter } from '@/components/BattleEffects';
-import { HERO_STATS, calculateDamage, generateMockQuestions } from '@/lib/gameEngine';
+import { HERO_STATS, calculateDamage, generateMockQuestions, getAdaptiveDifficulty } from '@/lib/gameEngine';
 import { useGameStore } from '@/lib/store';
 import { useMultiplayerRaid } from '@/lib/useMultiplayer';
 import { useRaid } from '@/lib/useAPI';
+import { getMasterySummary } from '@/lib/progression';
 
 type RaidPlayer = {
   id: string;
@@ -62,8 +63,6 @@ export default function RaidPage() {
   const [raidCodeInput, setRaidCodeInput] = useState('');
   const [raidSummary, setRaidSummary] = useState<RaidEndPayload | null>(null);
   const joinedRaidRef = useRef<string | null>(null);
-
-  const questions = useMemo(() => generateMockQuestions(5), []);
   const playerProgress = raid.players.map((player) => ({
     ...player,
     progress: raid.playerProgress?.[player.id] || { damageDealt: 0, correctAnswers: 0 },
@@ -168,6 +167,11 @@ export default function RaidPage() {
     );
   }
 
+  const masterySummary = getMasterySummary(user);
+  const preferredSubject = HERO_STATS[user.heroClass].subject;
+  const adaptiveDifficulty = getAdaptiveDifficulty(masterySummary[preferredSubject], user.level);
+  const questions = generateMockQuestions(adaptiveDifficulty, preferredSubject);
+
   const syncRaidState = (raidData: Awaited<ReturnType<typeof getRaid>>) => {
     if (!raidData) {
       return;
@@ -262,9 +266,18 @@ export default function RaidPage() {
     const result = calculateDamage(user.heroClass, isCorrect, raid.streak);
     const nextStreak = isCorrect ? raid.streak + 1 : 0;
 
-    submitAnswer(isCorrect, result.damage, nextStreak);
+    submitAnswer(isCorrect, result.damage, nextStreak, question.subject, question.concept);
+
+    setFeedbackType(isCorrect ? 'correct' : 'wrong');
+    setFeedbackMessage(
+      isCorrect
+        ? `Correct. ${question.explanation}`
+        : `Incorrect. ${question.explanation}`
+    );
 
     window.setTimeout(() => {
+      setFeedbackMessage('');
+      setFeedbackType(null);
       setCurrentQuestionIndex((value) => (value + 1 < questions.length ? value + 1 : 0));
     }, 900);
   };
@@ -298,6 +311,8 @@ export default function RaidPage() {
                   ['Hero', user.username],
                   ['Class', user.heroClass],
                   ['Socket', connected ? 'Live' : 'Connecting'],
+                  ['Adaptive tier', `${adaptiveDifficulty}`],
+                  ['Focus subject', preferredSubject],
                 ].map(([label, value]) => (
                   <div key={label} className="panel rounded-[24px] p-4">
                     <p className="section-label mb-2">{label}</p>
@@ -409,6 +424,15 @@ export default function RaidPage() {
           </div>
         </div>
 
+        <div className="mb-6 grid gap-4 md:grid-cols-4">
+          {Object.entries(masterySummary).map(([subject, score]) => (
+            <div key={subject} className="panel rounded-[22px] p-4">
+              <p className="section-label mb-2">{subject}</p>
+              <p className="text-xl font-black text-white">{score}%</p>
+            </div>
+          ))}
+        </div>
+
         <div className="mb-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
           <div>
             <StreakCounter streak={raid.streak} />
@@ -422,7 +446,7 @@ export default function RaidPage() {
             <QuestionCard
               question={questions[currentQuestionIndex]}
               onAnswer={handleAnswer}
-              disabled={!connected}
+              disabled={!connected || Boolean(feedbackMessage && (feedbackType === 'correct' || feedbackType === 'wrong'))}
             />
           </div>
 
