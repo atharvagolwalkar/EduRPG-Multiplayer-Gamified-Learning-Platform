@@ -7,6 +7,7 @@ import { setupWebSocket } from './websocket.js';
 import { setupMultiplayerWebSocket } from './multiplaya-websocket.js';
 import { setupFirebaseRoutes } from './routes/firebaseRoutes.js';
 import { firebaseConfigSource, isMockFirebase } from './firebase.js';
+import { generateDungeonMasterBeat } from './services/DungeonMasterService.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -33,6 +34,16 @@ app.get('/api/system/firebase-status', (req, res) => {
       projectId: process.env.FIREBASE_PROJECT_ID || null,
     },
   });
+});
+
+
+app.post('/api/ai/dungeon-master', async (req, res) => {
+  try {
+    const beat = await generateDungeonMasterBeat(req.body || {});
+    res.json({ success: true, beat });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 const server = createServer(app);
