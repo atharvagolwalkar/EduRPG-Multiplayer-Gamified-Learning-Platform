@@ -39,6 +39,8 @@ FIREBASE_PRIVATE_KEY=YOUR_PRIVATE_KEY
 FIREBASE_CLIENT_EMAIL=YOUR_CLIENT_EMAIL
 PORT=5000
 NODE_ENV=development
+OPENAI_API_KEY=YOUR_OPENAI_API_KEY   # optional for AI Dungeon Master
+OPENAI_MODEL=gpt-4o-mini             # optional override
 ```
 
 ### Running Locally
@@ -107,7 +109,12 @@ eduplatform/
 - Adjusts next question difficulty
 - Hints available for struggling students
 
-### 5. 📊 Progress Tracking
+### 5. 🤖 AI Dungeon Master (Optional)
+- Live narration, hints, and teaching explanations after each raid answer
+- Works in fallback mode without an OpenAI key
+- Enable with `OPENAI_API_KEY` on the backend
+
+### 6. 📊 Progress Tracking
 - Experience points → Levels
 - Achievement badges
 - Leaderboards (global, guild, weekly)
