@@ -51,6 +51,15 @@ function generateRaidCode() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
+
+type DungeonMasterBeat = {
+  narration: string;
+  hint: string;
+  explanation: string;
+  source: 'fallback' | 'openai';
+};
+
 export default function RaidPage() {
   const { user, raid, setRaid, resetRaid } = useGameStore();
   const { startRaid: startRaidAPI, getRaid } = useRaid();
@@ -62,6 +71,8 @@ export default function RaidPage() {
   const [loading, setLoading] = useState(false);
   const [raidCodeInput, setRaidCodeInput] = useState('');
   const [raidSummary, setRaidSummary] = useState<RaidEndPayload | null>(null);
+  const [dungeonBeat, setDungeonBeat] = useState<DungeonMasterBeat | null>(null);
+  const [loadingDungeonBeat, setLoadingDungeonBeat] = useState(false);
   const joinedRaidRef = useRef<string | null>(null);
   const playerProgress = raid.players.map((player) => ({
     ...player,
@@ -200,6 +211,7 @@ export default function RaidPage() {
     setFeedbackMessage('');
     resetRaid();
     setRaidSummary(null);
+    setDungeonBeat(null);
 
     try {
       const heroStats = HERO_STATS[user.heroClass];
@@ -237,6 +249,7 @@ export default function RaidPage() {
     setLoading(true);
     setFeedbackMessage('');
     setRaidSummary(null);
+    setDungeonBeat(null);
 
     try {
       const existingRaid = await getRaid(raidCodeInput.trim().toUpperCase());
@@ -260,6 +273,32 @@ export default function RaidPage() {
     }
   };
 
+
+  const fetchDungeonBeat = async (params: {
+    isCorrect: boolean;
+    streak: number;
+    subject: string;
+    concept: string;
+    difficulty: number;
+  }) => {
+    setLoadingDungeonBeat(true);
+    try {
+      const response = await fetch(`${API_URL}/api/ai/dungeon-master`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...params, heroClass: user.heroClass }),
+      });
+      const data = await response.json();
+      if (data?.success && data.beat) {
+        setDungeonBeat(data.beat);
+      }
+    } catch (error) {
+      console.error('Failed to load Dungeon Master beat:', error);
+    } finally {
+      setLoadingDungeonBeat(false);
+    }
+  };
+
   const handleAnswer = (selectedIndex: number) => {
     const question = questions[currentQuestionIndex];
     const isCorrect = selectedIndex === question.correctIndex;
@@ -274,6 +313,14 @@ export default function RaidPage() {
         ? `Correct. ${question.explanation}`
         : `Incorrect. ${question.explanation}`
     );
+
+    fetchDungeonBeat({
+      isCorrect,
+      streak: nextStreak,
+      subject: question.subject,
+      concept: question.concept,
+      difficulty: question.difficulty,
+    });
 
     window.setTimeout(() => {
       setFeedbackMessage('');
@@ -448,6 +495,24 @@ export default function RaidPage() {
               onAnswer={handleAnswer}
               disabled={!connected || Boolean(feedbackMessage && (feedbackType === 'correct' || feedbackType === 'wrong'))}
             />
+
+            <div className="panel mt-5 rounded-[24px] p-5">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="section-label">AI Dungeon Master</p>
+                <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{dungeonBeat?.source || 'offline'} mode</span>
+              </div>
+              {loadingDungeonBeat ? (
+                <p className="text-sm text-slate-300">The Dungeon Master is preparing your next tactical note...</p>
+              ) : dungeonBeat ? (
+                <div className="space-y-2 text-sm text-slate-200">
+                  <p><span className="font-bold text-cyan-100">Narration:</span> {dungeonBeat.narration}</p>
+                  <p><span className="font-bold text-emerald-100">Hint:</span> {dungeonBeat.hint}</p>
+                  <p><span className="font-bold text-amber-100">Explain:</span> {dungeonBeat.explanation}</p>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-300">Answer a question to receive live narration, hints, and mini explanations.</p>
+              )}
+            </div>
           </div>
 
           <div className="panel rounded-[28px] p-5">
