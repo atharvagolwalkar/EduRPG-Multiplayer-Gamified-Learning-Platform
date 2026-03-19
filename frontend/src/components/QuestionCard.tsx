@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Question } from '@/lib/gameEngine';
+import { Question } from '@/lib/game';
 
 interface QuestionCardProps {
   question: Question;

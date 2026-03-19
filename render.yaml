@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: edurpg-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      # Set these in the Render dashboard (Environment tab):
+      # FIREBASE_PROJECT_ID
+      # FIREBASE_CLIENT_EMAIL
+      # FIREBASE_PRIVATE_KEY   (paste the entire key including -----BEGIN/END-----)
+      # FRONTEND_URL           (your Vercel URL)
+      # HUGGING_FACE_API_KEY   (optional)
+    healthCheckPath: /health
+    autoDeploy: true

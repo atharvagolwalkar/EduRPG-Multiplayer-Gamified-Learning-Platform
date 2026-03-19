@@ -1,4 +1,4 @@
-import { db } from '../firebase.js';
+import { db } from '../store.js';
 import { v4 as uuidv4 } from 'uuid';
 import {
   computeUnlockedSkills,

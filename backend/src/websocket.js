@@ -1,259 +1,85 @@
+// websocket.js – root namespace (/) for lobby, guilds, raids list
+// The multiplayer raid game logic lives in multiplayer-websocket.js (/raids namespace)
+
 import { v4 as uuidv4 } from 'uuid';
-import { isMockFirebase, realtimeDb } from './firebase.js';
+import { isMockFirebase, realtimeDb } from './store.js';
 
 const mockRaids = new Map();
 const mockGuilds = new Map();
 const mockPlayers = new Map();
 
 function createDefaultRaid(raidId) {
-  return {
-    id: raidId,
-    players: [],
-    monsterHp: 100,
-    teamHp: 100,
-    streak: 0,
-    startTime: Date.now(),
-  };
+  return { id: raidId, players: [], monsterHp: 100, teamHp: 100, streak: 0, startTime: Date.now() };
 }
 
 export function setupWebSocket(io) {
   io.on('connection', (socket) => {
-    console.log(`✓ Player connected: ${socket.id}`);
+    console.log(`[/] Player connected: ${socket.id}`);
 
-    socket.on('raid:join', async (data) => {
-      const { raidId, player } = data;
-      mockPlayers.set(socket.id, player);
-      
+    // ── Raid list ────────────────────────────────────────────────────────────
+    socket.on('raids:list', async () => {
       if (isMockFirebase || !realtimeDb) {
-        let raid = mockRaids.get(raidId) || createDefaultRaid(raidId);
-        raid.players.push({ ...player, socketId: socket.id });
-        mockRaids.set(raidId, raid);
-        
-        socket.join(raidId);
-        io.to(raidId).emit('raid:player-joined', {
-          players: raid.players,
-          message: `${player.username} joined the raid!`,
-        });
-        console.log(`✓ Player ${player.username} joined raid ${raidId}`);
-        return;
+        return socket.emit('raids:data', [...mockRaids.values()].map((r) => ({
+          id: r.id, playerCount: r.players.length, monsterHp: r.monsterHp,
+        })));
       }
-
-      // Firebase realtime
-      const raidRef = realtimeDb.child('raids').child(raidId);
-      await raidRef.transaction((current) => {
-        const raid = current || createDefaultRaid(raidId);
-        raid.players.push({ ...player, socketId: socket.id });
-        return raid;
-      });
-      
-      socket.join(raidId);
-      io.to(raidId).emit('raid:player-joined', player);
-      console.log(`✓ Player ${player.username} joined Firebase raid ${raidId}`);
+      try {
+        const snap = await realtimeDb.child('raids').once('value');
+        const data = snap.val() || {};
+        socket.emit('raids:data', Object.values(data).map((r) => ({
+          id: r.id, playerCount: (r.players || []).length, monsterHp: r.monsterHp,
+        })));
+      } catch (err) { console.error('[raids:list]', err); }
     });
 
-    // Player answers question
-    socket.on('raid:answer', async (data) => {
-      const { raidId, isCorrect, damage, playerId } = data;
-
-      if (isMockFirebase || !realtimeDb) {
-        const raid = mockRaids.get(raidId);
-
-        if (!raid) {
-          return;
-        }
-
-        if (isCorrect) {
-          raid.monsterHp = Math.max(0, raid.monsterHp - damage);
-          raid.streak += 1;
-
-          io.to(raidId).emit('raid:damage', {
-            type: 'player-attack',
-            damage,
-            monsterHp: raid.monsterHp,
-            streak: raid.streak,
-            playerId,
-          });
-        } else {
-          raid.teamHp = Math.max(0, raid.teamHp - 20);
-          raid.streak = 0;
-
-          io.to(raidId).emit('raid:damage', {
-            type: 'monster-attack',
-            damage: 20,
-            teamHp: raid.teamHp,
-            streak: 0,
-          });
-        }
-
-        if (raid.monsterHp <= 0) {
-          io.to(raidId).emit('raid:end', {
-            status: 'victory',
-            xpReward: 100,
-          });
-          mockRaids.delete(raidId);
-        } else if (raid.teamHp <= 0) {
-          io.to(raidId).emit('raid:end', {
-            status: 'defeat',
-          });
-          mockRaids.delete(raidId);
-        }
-
-        return;
-      }
-
-      const raidRef = realtimeDb.child('raids').child(raidId);
-      const snapshot = await raidRef.once('value');
-      const raid = snapshot.val();
-
-      if (!raid) {
-        return;
-      }
-
-      if (isCorrect) {
-        raid.monsterHp = Math.max(0, raid.monsterHp - damage);
-        raid.streak += 1;
-
-        io.to(raidId).emit('raid:damage', {
-          type: 'player-attack',
-          damage,
-          monsterHp: raid.monsterHp,
-          streak: raid.streak,
-          playerId,
-        });
-      } else {
-        raid.teamHp = Math.max(0, raid.teamHp - 20);
-        raid.streak = 0;
-
-        io.to(raidId).emit('raid:damage', {
-          type: 'monster-attack',
-          damage: 20,
-          teamHp: raid.teamHp,
-          streak: 0,
-        });
-      }
-
-      await raidRef.set(raid);
-
-      if (raid.monsterHp <= 0) {
-        io.to(raidId).emit('raid:end', {
-          status: 'victory',
-          xpReward: 100,
-        });
-        await raidRef.remove();
-      } else if (raid.teamHp <= 0) {
-        io.to(raidId).emit('raid:end', {
-          status: 'defeat',
-        });
-        await raidRef.remove();
-      }
-    });
-
-    // Create guild
-    socket.on('guild:create', async (data) => {
-      const { name, creator } = data;
+    // ── Guild create ─────────────────────────────────────────────────────────
+    socket.on('guild:create', async ({ name, creator }) => {
       const guildId = uuidv4();
-      const guild = {
-        id: guildId,
-        name,
-        creator,
-        members: [creator],
-        xp: 0,
-      };
-
+      const guild = { id: guildId, name, creator, members: [creator], xp: 0 };
       if (isMockFirebase || !realtimeDb) {
         mockGuilds.set(guildId, guild);
       } else {
-        await realtimeDb.child('guilds').child(guildId).set(guild);
+        await realtimeDb.child('guilds').child(guildId).set(guild).catch(console.error);
       }
-
       socket.emit('guild:created', guild);
-      console.log(`✓ Guild created: ${name}`);
     });
 
-    // Join guild
-    socket.on('guild:join', async (data) => {
-      const { guildId, player } = data;
-      let guild;
-
-      if (isMockFirebase || !realtimeDb) {
-        guild = mockGuilds.get(guildId);
-      } else {
-        const snapshot = await realtimeDb.child('guilds').child(guildId).once('value');
-        guild = snapshot.val();
-      }
+    // ── Guild join ───────────────────────────────────────────────────────────
+    socket.on('guild:join', async ({ guildId, player }) => {
+      let guild = isMockFirebase || !realtimeDb
+        ? mockGuilds.get(guildId)
+        : (await realtimeDb.child('guilds').child(guildId).once('value').catch(() => null))?.val();
 
       if (guild && guild.members.length < 50) {
         guild.members.push(player);
-
         if (isMockFirebase || !realtimeDb) {
           mockGuilds.set(guildId, guild);
         } else {
-          await realtimeDb.child('guilds').child(guildId).set(guild);
+          await realtimeDb.child('guilds').child(guildId).set(guild).catch(console.error);
         }
-
         io.emit('guild:updated', { guild, event: 'member-joined' });
       }
     });
 
-    // Get all raids
-    socket.on('raids:list', async () => {
-      if (isMockFirebase || !realtimeDb) {
-        const raidsList = Array.from(mockRaids.values()).map((raid) => ({
-          id: raid.id,
-          playerCount: raid.players.length,
-          monsterHp: raid.monsterHp,
-        }));
-        socket.emit('raids:data', raidsList);
-        return;
-      }
-
-      const snapshot = await realtimeDb.child('raids').once('value');
-      const raidsData = snapshot.val() || {};
-      const raidsList = Object.values(raidsData).map((raid) => ({
-        id: raid.id,
-        playerCount: (raid.players || []).length,
-        monsterHp: raid.monsterHp,
-      }));
-      socket.emit('raids:data', raidsList);
-    });
-
-    // Get all guilds
+    // ── Guild list ───────────────────────────────────────────────────────────
     socket.on('guilds:list', async () => {
       if (isMockFirebase || !realtimeDb) {
-        const guildsList = Array.from(mockGuilds.values()).map((guild) => ({
-          id: guild.id,
-          name: guild.name,
-          memberCount: guild.members.length,
-        }));
-        socket.emit('guilds:data', guildsList);
-        return;
+        return socket.emit('guilds:data', [...mockGuilds.values()].map((g) => ({
+          id: g.id, name: g.name, memberCount: g.members.length,
+        })));
       }
-
-      const snapshot = await realtimeDb.child('guilds').once('value');
-      const guildsData = snapshot.val() || {};
-      const guildsList = Object.values(guildsData).map((guild) => ({
-        id: guild.id,
-        name: guild.name,
-        memberCount: (guild.members || []).length,
-      }));
-      socket.emit('guilds:data', guildsList);
+      try {
+        const snap = await realtimeDb.child('guilds').once('value');
+        const data = snap.val() || {};
+        socket.emit('guilds:data', Object.values(data).map((g) => ({
+          id: g.id, name: g.name, memberCount: (g.members || []).length,
+        })));
+      } catch (err) { console.error('[guilds:list]', err); }
     });
 
-    // Disconnect
     socket.on('disconnect', () => {
       const player = mockPlayers.get(socket.id);
-      if (player) {
-        console.log(`✗ Player disconnected: ${player.username}`);
-        mockPlayers.delete(socket.id);
-      }
+      if (player) { console.log(`[/] Player disconnected: ${player.username}`); mockPlayers.delete(socket.id); }
     });
-
-    socket.on('error', (error) => {
-      console.error(`WebSocket error: ${error}`);
-    });
-  });
-
-  io.on('error', (error) => {
-    console.error(`Socket.io error: ${error}`);
   });
 }

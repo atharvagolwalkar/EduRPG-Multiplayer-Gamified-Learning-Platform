@@ -1,100 +1,61 @@
-import { io, Socket } from 'socket.io-client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+'use client';
 
-type RaidPlayer = {
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { getRaidSocket } from './socket';
+import type { Socket } from 'socket.io-client';
+
+interface Player {
   id: string;
   username?: string;
   guildId?: string;
-};
+}
 
-type RaidEventPayload = Record<string, unknown>;
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-
-export const useMultiplayerRaid = (raidId: string | null) => {
+export function useMultiplayerRaid(raidId: string | null) {
   const socketRef = useRef<Socket | null>(null);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    if (!raidId) {
-      return undefined;
-    }
+    const socket = getRaidSocket();
+    socketRef.current = socket;
 
-    socketRef.current = io(`${API_URL}/raids`, {
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-    });
+    const onConnect = () => setConnected(true);
+    const onDisconnect = () => setConnected(false);
 
-    socketRef.current.on('connect', () => {
-      console.log('Connected to raid WebSocket');
-      setConnected(true);
-    });
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
 
-    socketRef.current.on('disconnect', () => {
-      console.log('Disconnected from raid WebSocket');
-      setConnected(false);
-    });
-
-    socketRef.current.on('error', (error: unknown) => {
-      console.error('WebSocket error:', error);
-    });
+    if (socket.connected) setConnected(true);
 
     return () => {
-      socketRef.current?.disconnect();
-      socketRef.current = null;
-      setConnected(false);
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
     };
+  }, []);
+
+  const joinRaid = useCallback((player: Player) => {
+    if (!socketRef.current || !raidId) return;
+    socketRef.current.emit('raid:join', { raidId, player });
   }, [raidId]);
 
-  const joinRaid = useCallback(
-    (player: RaidPlayer) => {
-      if (socketRef.current && raidId) {
-        socketRef.current.emit('raid:join', { raidId, player });
-      }
-    },
-    [raidId]
-  );
-
   const submitAnswer = useCallback(
-    (isCorrect: boolean, damage: number, streak: number, subject?: string, concept?: string) => {
-      if (socketRef.current && raidId) {
-        socketRef.current.emit('raid:answer', {
-          raidId,
-          isCorrect,
-          damage,
-          streak,
-          subject,
-          concept,
-        });
-      }
+    (isCorrect: boolean, baseDamage: number, streak: number, subject: string, concept: string) => {
+      if (!socketRef.current || !raidId) return;
+      socketRef.current.emit('raid:answer', {
+        raidId,
+        isCorrect,
+        baseDamage,
+        streak,
+        subject,
+        concept,
+      });
     },
     [raidId]
   );
-
-  const onPlayerJoined = useCallback((callback: (data: RaidEventPayload) => void) => {
-    socketRef.current?.on('raid:player-joined', callback);
-  }, []);
-
-  const onDamage = useCallback((callback: (data: RaidEventPayload) => void) => {
-    socketRef.current?.on('raid:damage', callback);
-  }, []);
-
-  const onRaidEnd = useCallback((callback: (data: RaidEventPayload) => void) => {
-    socketRef.current?.on('raid:end', callback);
-  }, []);
-
-  const onPlayerLeft = useCallback((callback: (data: RaidEventPayload) => void) => {
-    socketRef.current?.on('raid:player-left', callback);
-  }, []);
 
   return {
     socket: socketRef.current,
     connected,
     joinRaid,
     submitAnswer,
-    onPlayerJoined,
-    onDamage,
-    onRaidEnd,
-    onPlayerLeft,
   };
-};
+}

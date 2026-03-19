@@ -1,578 +1,333 @@
 'use client';
-
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { HPBar } from '@/components/HPBar';
-import { QuestionCard } from '@/components/QuestionCard';
-import { StreakCounter } from '@/components/BattleEffects';
-import { HERO_STATS, calculateDamage, generateMockQuestions, getAdaptiveDifficulty } from '@/lib/gameEngine';
 import { useGameStore } from '@/lib/store';
-import { useMultiplayerRaid } from '@/lib/useMultiplayer';
-import { useRaid } from '@/lib/useAPI';
-import { getMasterySummary } from '@/lib/progression';
+import { api } from '@/lib/api';
+import { getRaidSocket } from '@/lib/socket';
+import { HERO_STATS, calcDamage } from '@/lib/game';
 
-type RaidPlayer = {
-  id: string;
-  username?: string;
-  guildId?: string;
-};
+const RAID_DURATION = 180;
 
-type RaidSyncPayload = {
-  raid: {
-    id: string;
-    players: RaidPlayer[];
-    monsterName: string;
-    monsterHp: number;
-    monsterMaxHp: number;
-    teamHp: number;
-    teamMaxHp: number;
-    streak: number;
-    status: string;
-    playerProgress?: Record<string, { damageDealt: number; correctAnswers: number }>;
-  };
-  message?: string;
-};
-
-type RaidDamagePayload = RaidSyncPayload & {
-  type: 'player-attack' | 'monster-attack';
-  damage: number;
-  playerId?: string;
-};
-
-type RaidEndPayload = {
-  status: 'victory' | 'defeat';
-  xpReward: number;
-  totalDamage: number;
-  correctAnswers: number;
-  raid: RaidSyncPayload['raid'];
-};
-
-function generateRaidCode() {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
+function HPBar({ label, current, max, color }: { label: string; current: number; max: number; color: 'red' | 'green' }) {
+  const pct = max > 0 ? Math.max(0, Math.min(100, (current / max) * 100)) : 0;
+  const bar = color === 'red'
+    ? pct > 50 ? 'bg-rose-500' : pct > 25 ? 'bg-orange-500' : 'bg-red-700'
+    : pct > 50 ? 'bg-emerald-500' : pct > 25 ? 'bg-yellow-400' : 'bg-red-600';
+  return (
+    <div>
+      <div className="flex justify-between text-sm mb-1">
+        <span className="text-gray-300">{label}</span>
+        <span className="font-bold">{Math.ceil(current)}/{max}</span>
+      </div>
+      <div className="h-4 bg-gray-800 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-500 ${bar}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
-
-type DungeonMasterBeat = {
-  narration: string;
-  hint: string;
-  explanation: string;
-  source: 'fallback' | 'openai';
-};
-
 export default function RaidPage() {
-  const { user, raid, setRaid, resetRaid } = useGameStore();
-  const { startRaid: startRaidAPI, getRaid } = useRaid();
-  const { socket, connected, joinRaid, submitAnswer } = useMultiplayerRaid(raid.raidId);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [feedbackMessage, setFeedbackMessage] = useState('');
-  const [feedbackType, setFeedbackType] = useState<'correct' | 'wrong' | 'result' | 'info' | null>(null);
-  const [raidActive, setRaidActive] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [raidCodeInput, setRaidCodeInput] = useState('');
-  const [raidSummary, setRaidSummary] = useState<RaidEndPayload | null>(null);
-  const [dungeonBeat, setDungeonBeat] = useState<DungeonMasterBeat | null>(null);
-  const [loadingDungeonBeat, setLoadingDungeonBeat] = useState(false);
-  const [awaitingNextQuestion, setAwaitingNextQuestion] = useState(false);
-  const joinedRaidRef = useRef<string | null>(null);
-  const playerProgress = raid.players.map((player) => ({
-    ...player,
-    progress: raid.playerProgress?.[player.id] || { damageDealt: 0, correctAnswers: 0 },
-  }));
+  const { user, updateUser } = useGameStore();
+  const [questions, setQuestions]     = useState<any[]>([]);
+  const [qIndex, setQIndex]           = useState(0);
+  const [raidState, setRaidState]     = useState<any>(null);
+  const [connected, setConnected]     = useState(false);
+  const [active, setActive]           = useState(false);
+  const [loading, setLoading]         = useState(false);
+  const [codeInput, setCodeInput]     = useState('');
+  const [notice, setNotice]           = useState('');
+  const [noticeOk, setNoticeOk]       = useState(true);
+  const [awaiting, setAwaiting]       = useState(false);
+  const [summary, setSummary]         = useState<any>(null);
+  const [timerSec, setTimerSec]       = useState(RAID_DURATION);
+  const [difficulty, setDifficulty]   = useState(1);
+  const timerRef  = useRef<any>(null);
+  const joinedRef = useRef<string | null>(null);
+  const socketRef = useRef<any>(null);
 
+  // Load questions when difficulty/user changes
   useEffect(() => {
-    if (!connected || !user || !raid.raidId || joinedRaidRef.current === raid.raidId) {
-      return;
-    }
+    if (!user) return;
+    api.getQuestions(user.heroClass, difficulty)
+      .then(d => setQuestions(d.questions || []))
+      .catch(() => {});
+  }, [user, difficulty]);
 
-    joinRaid({
-      id: user.id,
-      username: user.username,
-      guildId: user.guildId,
-    });
-    joinedRaidRef.current = raid.raidId;
-  }, [connected, joinRaid, raid.raidId, user]);
-
+  // Socket setup
   useEffect(() => {
-    if (!socket) {
-      return undefined;
-    }
+    const socket = getRaidSocket();
+    socketRef.current = socket;
+    socket.on('connect',    () => setConnected(true));
+    socket.on('disconnect', () => setConnected(false));
+    if (socket.connected) setConnected(true);
+    return () => { socket.off('connect'); socket.off('disconnect'); };
+  }, []);
 
-    const handleSync = (payload: RaidSyncPayload) => {
-      setRaid({
-        raidId: payload.raid.id,
-        players: payload.raid.players.map((player) => ({
-          id: player.id,
-          username: player.username || player.id,
-          heroClass: user?.heroClass || 'mage',
-          level: 1,
-          xp: 0,
-          guildId: player.guildId,
-        })),
-        monsterHp: payload.raid.monsterHp,
-        playerHp: payload.raid.teamHp,
-        streak: payload.raid.streak,
-        isActive: payload.raid.status === 'active',
-        playerProgress: payload.raid.playerProgress,
-      });
-      if (payload.message) {
-        setFeedbackType('info');
-        setFeedbackMessage(payload.message);
-      }
+  // Socket events
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket || !active) return;
+
+    const onSync    = (d: any) => setRaidState(d.raid);
+    const onJoined  = (d: any) => { setRaidState(d.raid); showNotice(d.message || 'Player joined!', true); };
+    const onDamage  = (d: any) => {
+      setRaidState(d.raid);
+      showNotice(d.message || '', d.type === 'player-attack');
+      if (d.adaptiveSignal === 'increase') setDifficulty(v => Math.min(5, v + 1));
+      if (d.adaptiveSignal === 'decrease') setDifficulty(v => Math.max(1, v - 1));
+      setTimeout(() => { setAwaiting(false); setQIndex(i => (i + 1 < questions.length ? i + 1 : 0)); }, 800);
     };
-
-    const handlePlayerJoined = (payload: RaidSyncPayload) => {
-      handleSync(payload);
-      setFeedbackType('info');
-      setFeedbackMessage(payload.message || 'Raid roster updated.');
+    const onEnd     = (d: any) => {
+      setRaidState({ ...d.raid, status: d.status });
+      setSummary(d);
+      setActive(false);
+      stopTimer();
+      if (d.xpReward && user) updateUser({ xp: (user.xp || 0) + d.xpReward, totalXp: (user.totalXp || 0) + d.xpReward });
     };
+    const onTick    = (d: any) => setTimerSec(d.timeRemaining);
+    const onLeft    = (d: any) => showNotice(d.message || 'A player left.', false);
 
-    const handleDamage = (payload: RaidDamagePayload) => {
-      handleSync(payload);
-      setFeedbackType(payload.type === 'player-attack' ? 'correct' : 'wrong');
-      setFeedbackMessage(payload.message || 'Raid state updated.');
-      // Disable all players' buttons while waiting for next question
-      setAwaitingNextQuestion(true);
-    };
-
-    const handleRaidEnd = (payload: RaidEndPayload) => {
-      handleSync({ raid: payload.raid });
-      setRaidSummary(payload);
-      setRaidActive(false);
-      setFeedbackType('result');
-      setFeedbackMessage(
-        payload.status === 'victory'
-          ? `Victory. Everyone earned ${payload.xpReward} XP.`
-          : 'The raid ended in defeat. Regroup and try again.'
-      );
-      joinedRaidRef.current = null;
-    };
-
-    const handlePlayerLeft = (payload: { message?: string }) => {
-      setFeedbackType('info');
-      setFeedbackMessage(payload.message || 'A player left the raid.');
-    };
-
-    socket.on('raid:sync', handleSync);
-    socket.on('raid:player-joined', handlePlayerJoined);
-    socket.on('raid:damage', handleDamage);
-    socket.on('raid:end', handleRaidEnd);
-    socket.on('raid:player-left', handlePlayerLeft);
+    socket.on('raid:sync',          onSync);
+    socket.on('raid:player-joined', onJoined);
+    socket.on('raid:damage',        onDamage);
+    socket.on('raid:end',           onEnd);
+    socket.on('raid:tick',          onTick);
+    socket.on('raid:player-left',   onLeft);
 
     return () => {
-      socket.off('raid:sync', handleSync);
-      socket.off('raid:player-joined', handlePlayerJoined);
-      socket.off('raid:damage', handleDamage);
-      socket.off('raid:end', handleRaidEnd);
-      socket.off('raid:player-left', handlePlayerLeft);
+      socket.off('raid:sync',          onSync);
+      socket.off('raid:player-joined', onJoined);
+      socket.off('raid:damage',        onDamage);
+      socket.off('raid:end',           onEnd);
+      socket.off('raid:tick',          onTick);
+      socket.off('raid:player-left',   onLeft);
     };
-  }, [setRaid, socket, user?.heroClass]);
+  }, [active, questions.length, user]);
 
-  if (!user) {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-4 py-8">
-        <div className="panel rounded-[30px] p-8 text-center">
-          <p className="text-lg text-slate-300">Create a hero on the home page before entering the arena.</p>
-          <Link href="/" className="mt-6 inline-flex rounded-full bg-white/10 px-5 py-3 font-semibold text-white transition hover:bg-white/15">
-            Back home
-          </Link>
+  // Auto-join socket room
+  useEffect(() => {
+    if (!connected || !user || !raidState?.id || joinedRef.current === raidState.id) return;
+    socketRef.current?.emit('raid:join', { raidId: raidState.id, player: { id: user.id, username: user.username, heroClass: user.heroClass } });
+    joinedRef.current = raidState.id;
+  }, [connected, raidState?.id, user]);
+
+  function startTimer() {
+    setTimerSec(RAID_DURATION);
+    timerRef.current = setInterval(() => setTimerSec(t => Math.max(0, t - 1)), 1000);
+  }
+  function stopTimer() { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } }
+  useEffect(() => () => stopTimer(), []);
+
+  function showNotice(msg: string, ok: boolean) { setNotice(msg); setNoticeOk(ok); }
+
+  async function createRaid() {
+    if (!user) return;
+    setLoading(true); setSummary(null);
+    try {
+      const code = Math.random().toString(36).slice(2, 8).toUpperCase();
+      const { raid } = await api.startRaid({ raidId: code, leaderId: user.id, monsterHp: 100, teamHp: HERO_STATS[user.heroClass].maxHp, monsterName: 'Calculus Titan', players: [{ id: user.id, username: user.username }] });
+      setRaidState(raid); setCodeInput(code); joinedRef.current = null;
+      setQIndex(0); setActive(true); startTimer();
+      showNotice(`Raid ${code} created — share this code!`, true);
+    } catch (e: any) { showNotice(e.message, false); }
+    finally { setLoading(false); }
+  }
+
+  async function joinRaid() {
+    if (!user || !codeInput.trim()) return;
+    setLoading(true); setSummary(null);
+    try {
+      const { raid } = await api.getRaid(codeInput.trim().toUpperCase());
+      if (!raid) { showNotice('Raid not found', false); return; }
+      setRaidState(raid); joinedRef.current = null;
+      setQIndex(0); setActive(true); startTimer();
+      showNotice(`Joined raid ${raid.id}`, true);
+    } catch (e: any) { showNotice(e.message, false); }
+    finally { setLoading(false); }
+  }
+
+  function answer(idx: number) {
+    if (!user || !raidState || awaiting) return;
+    const q = questions[qIndex];
+    if (!q) return;
+    const isCorrect = idx === q.correct;
+    const dmg = calcDamage(user.heroClass, raidState.streak || 0);
+    setAwaiting(true);
+    showNotice(isCorrect ? `✅ Correct! ${q.explanation}` : `❌ Wrong. ${q.explanation}`, isCorrect);
+    socketRef.current?.emit('raid:answer', { raidId: raidState.id, isCorrect, damage: dmg, subject: q.subject, concept: q.concept });
+  }
+
+  if (!user) return (
+    <main className="flex min-h-screen items-center justify-center">
+      <div className="text-center">
+        <p className="text-gray-400 mb-4">Create a hero first</p>
+        <Link href="/" className="bg-white/10 px-5 py-3 rounded-xl font-semibold hover:bg-white/15">← Home</Link>
+      </div>
+    </main>
+  );
+
+  const mins = String(Math.floor(timerSec / 60)).padStart(2, '0');
+  const secs = String(timerSec % 60).padStart(2, '0');
+
+  // ── Lobby ──────────────────────────────────────────────────────────────────
+  if (!active) return (
+    <main className="max-w-4xl mx-auto px-4 py-8">
+      <div className="flex items-center gap-3 mb-6">
+        <Link href="/" className="bg-white/10 px-4 py-2 rounded-lg text-sm hover:bg-white/15">← Back</Link>
+        <h1 className="text-2xl font-black">⚔️ Raid Arena</h1>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <p className="text-gray-400 text-sm mb-3">Create a new raid room</p>
+          <button onClick={createRaid} disabled={loading}
+            className="w-full bg-gradient-to-r from-rose-500 to-orange-400 text-white font-black py-4 rounded-xl uppercase tracking-widest text-sm disabled:opacity-50 hover:scale-[1.02] transition">
+            {loading ? 'Opening...' : '⚔️ Create Raid'}
+          </button>
         </div>
-      </main>
-    );
-  }
-
-  const masterySummary = getMasterySummary(user);
-  const preferredSubject = HERO_STATS[user.heroClass].subject;
-  const adaptiveDifficulty = getAdaptiveDifficulty(masterySummary[preferredSubject], user.level);
-  const questions = generateMockQuestions(adaptiveDifficulty, preferredSubject);
-
-  const syncRaidState = (raidData: Awaited<ReturnType<typeof getRaid>>) => {
-    if (!raidData) {
-      return;
-    }
-
-    setRaid({
-      raidId: raidData.id,
-      players: (raidData.players || []).map((player) => ({
-        id: player.id,
-        username: player.username || player.id,
-        heroClass: player.id === user.id ? user.heroClass : user.heroClass,
-        level: 1,
-        xp: 0,
-        guildId: player.guildId,
-      })),
-      monsterHp: raidData.monsterHp,
-      playerHp: raidData.teamHp,
-      streak: raidData.streak,
-      isActive: raidData.status === 'active',
-      playerProgress: raidData.playerProgress,
-    });
-  };
-
-  const startRaid = async () => {
-    setLoading(true);
-    setFeedbackMessage('');
-    resetRaid();
-    setRaidSummary(null);
-    setDungeonBeat(null);
-
-    try {
-      const heroStats = HERO_STATS[user.heroClass];
-      const raidCode = generateRaidCode();
-      const remoteRaid = await startRaidAPI({
-        raidId: raidCode,
-        leaderId: user.id,
-        difficulty: 'medium',
-        monsterHp: 100,
-        teamHp: heroStats.maxHp,
-        players: [{ id: user.id, username: user.username, guildId: user.guildId }],
-        monsterName: 'Calculus Titan',
-      });
-
-      syncRaidState(remoteRaid);
-      setRaidCodeInput(raidCode);
-      setCurrentQuestionIndex(0);
-      setRaidActive(true);
-      setFeedbackType('info');
-      setFeedbackMessage(`Raid ${raidCode} created. Share this code so teammates can join.`);
-    } catch (error) {
-      console.error('Error starting raid:', error);
-      setFeedbackType('wrong');
-      setFeedbackMessage('The raid could not start. Make sure the backend server is available on port 5000.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const joinExistingRaid = async () => {
-    if (!raidCodeInput.trim()) {
-      return;
-    }
-
-    setLoading(true);
-    setFeedbackMessage('');
-    setRaidSummary(null);
-    setDungeonBeat(null);
-
-    try {
-      const existingRaid = await getRaid(raidCodeInput.trim().toUpperCase());
-      if (!existingRaid) {
-        setFeedbackType('wrong');
-        setFeedbackMessage('No raid was found for that code.');
-        return;
-      }
-
-      syncRaidState(existingRaid);
-      setCurrentQuestionIndex(0);
-      setRaidActive(true);
-      setFeedbackType('info');
-      setFeedbackMessage(`Joined raid ${existingRaid.id}. Waiting for live sync.`);
-    } catch (error) {
-      console.error('Error joining raid:', error);
-      setFeedbackType('wrong');
-      setFeedbackMessage('Could not join that raid right now.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-
-  const fetchDungeonBeat = async (params: {
-    isCorrect: boolean;
-    streak: number;
-    subject: string;
-    concept: string;
-    difficulty: number;
-  }) => {
-    setLoadingDungeonBeat(true);
-    try {
-      const response = await fetch(`${API_URL}/api/ai/dungeon-master`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...params, heroClass: user.heroClass }),
-      });
-      const data = await response.json();
-      if (data?.success && data.beat) {
-        setDungeonBeat(data.beat);
-      } else if (data?.beat) {
-        // Handle case where response doesn't have success flag
-        setDungeonBeat(data.beat);
-      } else {
-        console.warn('Unexpected dungeon master response:', data);
-      }
-    } catch (error) {
-      console.error('Failed to load Dungeon Master beat:', error);
-      // Leave previous DM response visible, don't error
-    } finally {
-      setLoadingDungeonBeat(false);
-    }
-  };
-
-  const handleAnswer = (selectedIndex: number) => {
-    const question = questions[currentQuestionIndex];
-    const isCorrect = selectedIndex === question.correctIndex;
-    const result = calculateDamage(user.heroClass, isCorrect, raid.streak);
-    const nextStreak = isCorrect ? raid.streak + 1 : 0;
-
-    submitAnswer(isCorrect, result.damage, nextStreak, question.subject, question.concept);
-
-    setFeedbackType(isCorrect ? 'correct' : 'wrong');
-    setFeedbackMessage(
-      isCorrect
-        ? `Correct. ${question.explanation}`
-        : `Incorrect. ${question.explanation}`
-    );
-
-    fetchDungeonBeat({
-      isCorrect,
-      streak: nextStreak,
-      subject: question.subject,
-      concept: question.concept,
-      difficulty: question.difficulty,
-    });
-
-    window.setTimeout(() => {
-      setFeedbackMessage('');
-      setFeedbackType(null);
-      setAwaitingNextQuestion(false);
-      setCurrentQuestionIndex((value) => (value + 1 < questions.length ? value + 1 : 0));
-    }, 900);
-  };
-
-  const statusTone =
-    feedbackType === 'correct'
-      ? 'border-emerald-300/30 bg-emerald-400/10 text-emerald-100'
-      : feedbackType === 'wrong'
-        ? 'border-rose-300/30 bg-rose-400/10 text-rose-100'
-        : feedbackType === 'result'
-          ? 'border-amber-300/30 bg-amber-300/10 text-amber-50'
-          : 'border-cyan-300/30 bg-cyan-400/10 text-cyan-50';
-
-  if (!raidActive) {
-    return (
-      <main className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
-        <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
-          <div className="mb-6 flex items-center gap-3">
-            <Link
-              href="/"
-              className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
-            >
-              ← Back Home
-            </Link>
-            <p className="text-slate-400">|</p>
-            <p className="section-label">Raid Arena</p>
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <p className="text-gray-400 text-sm mb-3">Join an existing raid</p>
+          <div className="flex gap-2">
+            <input value={codeInput} onChange={e => setCodeInput(e.target.value.toUpperCase())}
+              placeholder="Raid code" className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white outline-none focus:border-cyan-500" />
+            <button onClick={joinRaid} disabled={loading || !codeInput.trim()}
+              className="bg-cyan-500 px-5 py-3 rounded-xl font-bold hover:bg-cyan-400 disabled:opacity-50 transition">
+              Join
+            </button>
           </div>
-          <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
-            <div className="space-y-6">
-              <h1 className="headline-gradient text-5xl font-black tracking-tight md:text-7xl">
-                Real squad raids with shareable room codes.
-              </h1>
-              <p className="max-w-2xl text-lg leading-8 text-slate-300">
-                Create a raid, share the code with teammates, and let the backend socket room keep every player synced.
-              </p>
+        </div>
+      </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                {[
-                  ['Boss', 'Calculus Titan'],
-                  ['Hero', user.username],
-                  ['Class', user.heroClass],
-                  ['Socket', connected ? 'Live' : 'Connecting'],
-                  ['Adaptive tier', `${adaptiveDifficulty}`],
-                  ['Focus subject', preferredSubject],
-                ].map(([label, value]) => (
-                  <div key={label} className="panel rounded-[24px] p-4">
-                    <p className="section-label mb-2">{label}</p>
-                    <p className="text-xl font-black text-white">{value}</p>
-                  </div>
-                ))}
+      {notice && <div className={`rounded-xl px-4 py-3 text-sm mb-4 ${noticeOk ? 'bg-emerald-500/20 text-emerald-200' : 'bg-red-500/20 text-red-300'}`}>{notice}</div>}
+
+      {summary && (
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <p className="text-gray-400 text-sm mb-3">Last raid result</p>
+          <div className="grid grid-cols-3 gap-3">
+            {[['Result', summary.status], ['XP earned', summary.xpReward], ['Correct', summary.correctAnswers]].map(([k, v]) => (
+              <div key={k} className="bg-gray-800 rounded-xl p-3 text-center">
+                <p className="text-xl font-black capitalize">{v}</p>
+                <p className="text-xs text-gray-500">{k}</p>
               </div>
-            </div>
-
-            <div className="space-y-5">
-              <div className="panel rounded-[30px] p-6">
-                <p className="section-label mb-4">Create a room</p>
-                <p className="mb-4 text-sm leading-7 text-slate-300">
-                  Start a fresh raid and get a shareable code for your team.
-                </p>
-                <button
-                  type="button"
-                  onClick={startRaid}
-                  disabled={loading}
-                  className="rounded-full bg-gradient-to-r from-rose-400 via-orange-400 to-amber-300 px-7 py-4 text-sm font-black uppercase tracking-[0.24em] text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {loading ? 'Opening arena...' : 'Create raid'}
-                </button>
-              </div>
-
-              <div className="panel rounded-[30px] p-6">
-                <p className="section-label mb-4">Join a room</p>
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <input
-                    type="text"
-                    value={raidCodeInput}
-                    onChange={(event) => setRaidCodeInput(event.target.value.toUpperCase())}
-                    placeholder="Enter raid code"
-                    className="w-full rounded-[20px] border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none transition focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
-                  />
-                  <button
-                    type="button"
-                    onClick={joinExistingRaid}
-                    disabled={loading || !raidCodeInput.trim()}
-                    className="rounded-full border border-white/10 bg-white/10 px-6 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Join
-                  </button>
-                </div>
-              </div>
-
-              {feedbackMessage && (
-                <div className={`rounded-[24px] border px-5 py-4 text-sm leading-7 ${statusTone}`}>
-                  {feedbackMessage}
-                </div>
-              )}
-
-              {raidSummary && (
-                <div className="panel rounded-[30px] p-6">
-                  <p className="section-label mb-4">Last raid summary</p>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-                      <p className="text-xl font-black text-white capitalize">{raidSummary.status}</p>
-                      <p className="mt-2 text-sm text-slate-400">Outcome</p>
-                    </div>
-                    <div className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-                      <p className="text-xl font-black text-white">{raidSummary.xpReward}</p>
-                      <p className="mt-2 text-sm text-slate-400">XP reward</p>
-                    </div>
-                    <div className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-                      <p className="text-xl font-black text-white">{raidSummary.totalDamage}</p>
-                      <p className="mt-2 text-sm text-slate-400">Total damage</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            ))}
           </div>
-        </section>
-      </main>
-    );
-  }
+        </div>
+      )}
+
+      <div className="mt-4 grid grid-cols-3 gap-3">
+        {[['Hero', user.username], ['Class', user.heroClass], ['Socket', connected ? '🟢 Live' : '🔴 Connecting']].map(([k, v]) => (
+          <div key={k} className="bg-gray-900 border border-gray-800 rounded-xl p-3 text-center">
+            <p className="font-bold capitalize">{v}</p>
+            <p className="text-xs text-gray-500">{k}</p>
+          </div>
+        ))}
+      </div>
+    </main>
+  );
+
+  // ── Battle ─────────────────────────────────────────────────────────────────
+  const r = raidState;
+  const q = questions[qIndex];
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
-      <section className="panel-strong animate-lift-in rounded-[36px] p-6 md:p-8">
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/"
-              className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
-            >
-              ← Back Home
-            </Link>
-            <div>
-              <p className="section-label mb-2">Live battle</p>
-              <h1 className="text-4xl font-black tracking-tight text-white md:text-5xl">Calculus Titan</h1>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <div className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm font-black uppercase tracking-[0.2em] text-cyan-50">
-              Raid code {raid.raidId}
-            </div>
-            <div className="rounded-full border border-amber-300/30 bg-amber-300/15 px-4 py-2 text-sm font-black uppercase tracking-[0.2em] text-amber-100">
-              Question {currentQuestionIndex + 1} / {questions.length}
-            </div>
-          </div>
+    <main className="max-w-5xl mx-auto px-4 py-4">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div className="flex items-center gap-3">
+          <Link href="/" className="bg-white/10 px-3 py-2 rounded-lg text-sm hover:bg-white/15">←</Link>
+          <h1 className="text-xl font-black">{r?.monsterName || 'Boss Battle'}</h1>
         </div>
-
-        <div className="mb-6 grid gap-4 md:grid-cols-2">
-          <div className="panel rounded-[28px] p-5">
-            <HPBar label="Boss HP" current={raid.monsterHp} max={100} color="red" showAnimation />
-          </div>
-          <div className="panel rounded-[28px] p-5">
-            <HPBar
-              label="Team HP"
-              current={raid.playerHp}
-              max={HERO_STATS[user.heroClass].maxHp}
-              color="green"
-              showAnimation
-            />
-          </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          {r?.streak >= 2 && (
+            <span className="bg-orange-500/20 border border-orange-400/40 text-orange-200 px-3 py-1 rounded-full text-sm font-black">
+              🔥 COMBO ×{r.streak}
+            </span>
+          )}
+          <span className={`px-3 py-1 rounded-full text-sm font-black ${timerSec <= 30 ? 'bg-red-500/20 text-red-300 animate-pulse' : 'bg-gray-800 text-gray-300'}`}>
+            ⏱ {mins}:{secs}
+          </span>
+          <span className="bg-gray-800 text-gray-400 px-3 py-1 rounded-full text-xs">{r?.id}</span>
         </div>
+      </div>
 
-        <div className="mb-6 grid gap-4 md:grid-cols-4">
-          {Object.entries(masterySummary).map(([subject, score]) => (
-            <div key={subject} className="panel rounded-[22px] p-4">
-              <p className="section-label mb-2">{subject}</p>
-              <p className="text-xl font-black text-white">{score}%</p>
-            </div>
-          ))}
+      {/* HP bars */}
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <HPBar label="Boss HP" current={r?.monsterHp || 0} max={r?.monsterMaxHp || 100} color="red" />
         </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <HPBar label="Team HP" current={r?.teamHp || 0} max={r?.teamMaxHp || 100} color="green" />
+        </div>
+      </div>
 
-        <div className="mb-6 grid gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-          <div>
-            <StreakCounter streak={raid.streak} />
+      {/* Notice */}
+      {notice && (
+        <div className={`rounded-xl px-4 py-3 text-sm mb-4 font-semibold ${noticeOk ? 'bg-emerald-500/20 text-emerald-200' : 'bg-red-500/20 text-red-300'}`}>
+          {notice}
+        </div>
+      )}
 
-            {feedbackMessage && (
-              <div className={`mb-6 rounded-[24px] border px-5 py-4 text-sm font-semibold leading-7 ${statusTone}`}>
-                {feedbackMessage}
+      <div className="grid lg:grid-cols-[1fr_280px] gap-4">
+        {/* Question */}
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          {q ? (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-gray-400 text-sm">Question {qIndex + 1}/{questions.length}</p>
+                <span className="text-xs bg-gray-800 px-2 py-1 rounded-full capitalize">{q.subject} · tier {q.difficulty}</span>
               </div>
-            )}
-
-            <QuestionCard
-              question={questions[currentQuestionIndex]}
-              onAnswer={handleAnswer}
-              disabled={!connected || awaitingNextQuestion || Boolean(feedbackMessage && (feedbackType === 'correct' || feedbackType === 'wrong'))}
-            />
-
-            <div className="panel mt-5 rounded-[24px] p-5">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="section-label">AI Dungeon Master</p>
-                <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{dungeonBeat?.source || 'offline'} mode</span>
+              <p className="text-lg font-bold mb-5 leading-7">{q.body}</p>
+              <div className="grid gap-2">
+                {q.options.map((opt: string, i: number) => (
+                  <button key={i} onClick={() => answer(i)} disabled={awaiting || !connected}
+                    className="text-left bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-cyan-500 px-4 py-3 rounded-xl text-sm transition disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span className="inline-flex w-6 h-6 bg-gray-700 rounded-full items-center justify-center text-xs font-bold mr-3">
+                      {String.fromCharCode(65 + i)}
+                    </span>
+                    {opt}
+                  </button>
+                ))}
               </div>
-              {loadingDungeonBeat ? (
-                <p className="text-sm text-slate-300">The Dungeon Master is preparing your next tactical note...</p>
-              ) : dungeonBeat ? (
-                <div className="space-y-2 text-sm text-slate-200">
-                  <p><span className="font-bold text-cyan-100">Narration:</span> {dungeonBeat.narration}</p>
-                  <p><span className="font-bold text-emerald-100">Hint:</span> {dungeonBeat.hint}</p>
-                  <p><span className="font-bold text-amber-100">Explain:</span> {dungeonBeat.explanation}</p>
-                </div>
-              ) : (
-                <p className="text-sm text-slate-300">Answer a question to receive live narration, hints, and mini explanations.</p>
-              )}
-            </div>
-          </div>
+              {!connected && <p className="text-amber-400 text-xs mt-3">⚠️ Reconnecting to server...</p>}
+            </>
+          ) : (
+            <p className="text-gray-500 text-center py-8">Loading questions...</p>
+          )}
+        </div>
 
-          <div className="panel rounded-[28px] p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <p className="section-label">Squad roster</p>
-              <span className="text-sm font-bold uppercase tracking-[0.2em] text-slate-300">
-                {raid.players.length} players
-              </span>
-            </div>
-            <div className="space-y-3">
-              {playerProgress.map((player) => (
-                <div key={player.id} className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-                  <div className="flex items-center justify-between gap-3">
+        {/* Squad */}
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+          <p className="text-gray-400 text-sm mb-3">Squad · {r?.players?.length || 0} players</p>
+          <div className="space-y-2">
+            {(r?.players || []).map((p: any) => {
+              const prog = r?.playerProgress?.[p.id] || { damageDealt: 0, correctAnswers: 0 };
+              return (
+                <div key={p.id} className="bg-gray-800 rounded-xl p-3">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-lg font-black text-white">
-                        {player.username || player.id}
-                        {player.id === user.id ? ' (You)' : ''}
-                      </p>
-                      <p className="text-sm text-slate-400">{player.guildId ? `Guild ${player.guildId}` : 'No guild'}</p>
+                      <p className="font-bold text-sm">{p.username || p.id}{p.id === user.id ? ' (you)' : ''}</p>
+                      <p className="text-xs text-gray-500 capitalize">{p.heroClass}</p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-bold text-amber-200">{player.progress.damageDealt} dmg</p>
-                      <p className="text-xs uppercase tracking-[0.2em] text-slate-400">
-                        {player.progress.correctAnswers} correct
-                      </p>
+                      <p className="text-amber-300 text-sm font-bold">{prog.damageDealt} dmg</p>
+                      <p className="text-xs text-gray-500">{prog.correctAnswers} correct</p>
                     </div>
                   </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-gray-800 space-y-2">
+            {[['Streak', r?.streak || 0], ['Correct', r?.correctAnswers || 0], ['Difficulty', `Tier ${difficulty}`]].map(([k, v]) => (
+              <div key={k} className="flex justify-between text-sm">
+                <span className="text-gray-500">{k}</span>
+                <span className="font-bold">{v}</span>
+              </div>
+            ))}
           </div>
         </div>
-      </section>
+      </div>
     </main>
   );
 }

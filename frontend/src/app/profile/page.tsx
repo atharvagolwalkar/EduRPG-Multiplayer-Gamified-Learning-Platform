@@ -1,318 +1,87 @@
 'use client';
-
-import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useGameStore } from '@/lib/store';
-import { RaidRecord, useRaid, useUser } from '@/lib/useAPI';
-import { getMasterySummary, SKILL_TREES } from '@/lib/progression';
+import { HERO_STATS, xpForLevel } from '@/lib/game';
 
-const HERO_EMOJIS: Record<'mage' | 'engineer' | 'scientist', string> = {
-  mage: '🔮',
-  engineer: '⚙️',
-  scientist: '🧪',
-};
-
-const HERO_GRADIENTS: Record<'mage' | 'engineer' | 'scientist', string> = {
-  mage: 'from-fuchsia-500/40 via-violet-500/30 to-indigo-500/20',
-  engineer: 'from-cyan-400/40 via-sky-500/30 to-blue-500/20',
-  scientist: 'from-emerald-400/40 via-teal-500/30 to-lime-500/20',
+const SKILL_TREES: Record<string, { name: string; desc: string; requiredLevel: number }[]> = {
+  mage:      [{ name:'Arithmetic', desc:'Basic ops', requiredLevel:1 },{ name:'Algebra', desc:'Equations', requiredLevel:2 },{ name:'Geometry', desc:'Shapes', requiredLevel:3 },{ name:'Calculus', desc:'Derivatives', requiredLevel:5 },{ name:'Linear Algebra', desc:'Matrices', requiredLevel:7 }],
+  engineer:  [{ name:'JS Basics', desc:'Variables & loops', requiredLevel:1 },{ name:'Data Structures', desc:'Arrays & stacks', requiredLevel:2 },{ name:'Async JS', desc:'Promises', requiredLevel:3 },{ name:'Algorithms', desc:'Sort & search', requiredLevel:5 },{ name:'System Design', desc:'Architecture', requiredLevel:7 }],
+  scientist: [{ name:'Mechanics', desc:'Forces', requiredLevel:1 },{ name:'Energy', desc:'Work & KE', requiredLevel:2 },{ name:'Waves', desc:'Frequency', requiredLevel:3 },{ name:'Electricity', desc:"Ohm's law", requiredLevel:5 },{ name:'Quantum', desc:'Modern physics', requiredLevel:7 }],
 };
 
 export default function ProfilePage() {
-  const { user, setUser } = useGameStore();
-  const { getUser } = useUser();
-  const { getRaidHistory } = useRaid();
-  const [refreshing, setRefreshing] = useState(false);
-  const [notice, setNotice] = useState('');
-  const [raidHistory, setRaidHistory] = useState<RaidRecord[]>([]);
-
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    let active = true;
-
-    const loadHistory = async () => {
-      try {
-        const raids = await getRaidHistory(user.id);
-        if (active) {
-          setRaidHistory(raids);
-        }
-      } catch (error) {
-        console.error('Error loading raid history:', error);
-      }
-    };
-
-    loadHistory();
-
-    return () => {
-      active = false;
-    };
-  }, [getRaidHistory, user]);
-
-  if (!user) {
-    return (
-      <main className="mx-auto flex min-h-screen max-w-3xl items-center justify-center px-4 py-8">
-        <div className="panel rounded-[30px] p-8 text-center">
-          <p className="text-lg text-slate-300">Create a hero first so the profile has something to show.</p>
-          <Link href="/" className="mt-6 inline-flex rounded-full bg-white/10 px-5 py-3 font-semibold text-white transition hover:bg-white/15">
-            Back home
-          </Link>
-        </div>
-      </main>
-    );
-  }
-
-  const stats = user.stats || {
-    wins: 0,
-    losses: 0,
-    raidsCompleted: 0,
-    monsterDefeated: 0,
-    totalDamageDealt: 0,
-  };
-  const masterySummary = getMasterySummary(user);
-  const unlockedSkills = user.progression?.unlockedSkills || [];
-  const progressionHistory = user.progression?.progressionHistory || [];
-
-  const achievements = useMemo(
-    () => [
-      { icon: '👋', label: 'First Steps', unlocked: true },
-      { icon: '🔥', label: 'Win streak ready', unlocked: stats.wins >= 1 },
-      { icon: '🏆', label: 'Boss breaker', unlocked: stats.monsterDefeated >= 1 },
-      { icon: '⚡', label: '100 total XP', unlocked: (user.totalXp || user.xp) >= 100 },
-      { icon: '🧠', label: 'Knowledge engine', unlocked: user.level >= 3 },
-      { icon: '🤝', label: 'Guild-ready', unlocked: Boolean(user.guildId) },
-    ],
-    [stats.monsterDefeated, stats.wins, user.guildId, user.level, user.totalXp, user.xp]
+  const { user } = useGameStore();
+  if (!user) return (
+    <main className="flex min-h-screen items-center justify-center">
+      <div className="text-center"><p className="text-gray-400 mb-4">Create a hero first</p>
+        <Link href="/" className="bg-white/10 px-5 py-3 rounded-xl font-semibold hover:bg-white/15">← Home</Link></div>
+    </main>
   );
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    setNotice('');
-
-    try {
-      const [refreshedUser, raids] = await Promise.all([getUser(user.id), getRaidHistory(user.id)]);
-
-      if (refreshedUser) {
-        setUser({ ...refreshedUser, guildId: refreshedUser.guildId ?? undefined });
-        setRaidHistory(raids);
-        setNotice('Profile synced with backend data.');
-      } else {
-        setNotice('No backend profile was found for this user.');
-      }
-    } catch (error) {
-      console.error('Error refreshing user:', error);
-      setNotice('Could not refresh right now. Showing local profile data.');
-    } finally {
-      setRefreshing(false);
-    }
-  };
+  const s = HERO_STATS[user.heroClass];
+  const skills = SKILL_TREES[user.heroClass] || [];
+  const xpNeeded = xpForLevel(user.level);
+  const xpPrev   = xpForLevel(user.level - 1);
+  const pct      = Math.min(100, ((user.xp - xpPrev) / (xpNeeded - xpPrev)) * 100);
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
-      <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
-        <div className="mb-6 flex items-center gap-3">
-          <Link
-            href="/"
-            className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
-          >
-            ← Back Home
-          </Link>
-          <p className="text-slate-400">|</p>
-          <p className="section-label">My Profile</p>
-        </div>
-        <div className="grid gap-8 lg:grid-cols-[1fr_0.95fr]">
-          <div className={`rounded-[32px] border border-white/10 bg-gradient-to-br ${HERO_GRADIENTS[user.heroClass]} p-8`}>
-            <p className="section-label mb-4">Command Deck</p>
-            <div className="mb-6 flex items-center gap-5">
-              <div className="flex h-24 w-24 items-center justify-center rounded-[28px] border border-white/10 bg-black/20 text-5xl shadow-2xl">
-                {HERO_EMOJIS[user.heroClass]}
-              </div>
-              <div>
-                <h1 className="text-4xl font-black text-white md:text-5xl">{user.username}</h1>
-                <p className="mt-2 text-sm font-bold uppercase tracking-[0.24em] text-slate-200">
-                  {user.heroClass} class
-                </p>
-              </div>
-            </div>
-            <p className="max-w-xl text-sm leading-7 text-slate-200">
-              Your profile now pulls actual raid and stat data from the backend so wins, losses, and damage feel like real progression.
-            </p>
-          </div>
+    <main className="max-w-4xl mx-auto px-4 py-8">
+      <div className="flex items-center gap-3 mb-6">
+        <Link href="/" className="bg-white/10 px-4 py-2 rounded-lg text-sm hover:bg-white/15">← Back</Link>
+        <h1 className="text-2xl font-black">🧬 Command Deck</h1>
+      </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {[
-              ['Level', `${user.level}`],
-              ['Total XP', `${user.totalXp || user.xp}`],
-              ['Guild', user.guildId || 'No guild yet'],
-              ['Raid wins', `${stats.wins}`],
-            ].map(([label, value]) => (
-              <div key={label} className="panel rounded-[24px] p-5">
-                <p className="section-label mb-3">{label}</p>
-                <p className="text-2xl font-black text-white">{value}</p>
-              </div>
-            ))}
+      {/* Hero card */}
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 mb-5">
+        <div className="flex items-center gap-5 mb-4">
+          <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${s.color} flex items-center justify-center text-4xl`}>{s.icon}</div>
+          <div>
+            <p className="text-gray-400 text-sm">Active Hero</p>
+            <h2 className="text-3xl font-black">{user.username}</h2>
+            <p className="text-gray-400 capitalize">{user.heroClass} · Level {user.level} · {s.subject}</p>
           </div>
         </div>
-      </section>
+        <div className="flex justify-between text-xs text-gray-500 mb-1"><span>Level {user.level}</span><span>{user.xp} / {xpNeeded} XP</span></div>
+        <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-amber-400 to-rose-500 transition-all" style={{ width: `${pct}%` }} />
+        </div>
+      </div>
 
-      <section className="mt-8 grid gap-6 lg:grid-cols-[1fr_0.85fr]">
-        <div className="space-y-6">
-          <div className="panel animate-lift-in rounded-[30px] p-6">
-            <p className="section-label mb-4">Achievement track</p>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {achievements.map((achievement) => (
-                <div
-                  key={achievement.label}
-                  className={`rounded-[24px] border p-4 ${
-                    achievement.unlocked
-                      ? 'border-amber-300/30 bg-amber-300/10 text-amber-50'
-                      : 'border-white/10 bg-white/5 text-slate-400'
-                  }`}
-                >
-                  <div className="text-3xl">{achievement.icon}</div>
-                  <p className="mt-3 text-lg font-black">{achievement.label}</p>
-                  <p className="mt-2 text-sm">{achievement.unlocked ? 'Unlocked' : 'Locked'}</p>
-                </div>
-              ))}
-            </div>
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        {[['Wins', user.stats?.wins||0], ['Losses', user.stats?.losses||0], ['Raids', user.stats?.raidsCompleted||0], ['Damage', user.stats?.totalDamageDealt||0]].map(([k,v]) => (
+          <div key={k} className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+            <p className="text-2xl font-black">{v}</p><p className="text-xs text-gray-500 mt-1">{k}</p>
           </div>
+        ))}
+      </div>
 
-          <div className="panel animate-lift-in rounded-[30px] p-6">
-            <p className="section-label mb-4">Performance stats</p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {[
-                ['Raids completed', `${stats.raidsCompleted}`],
-                ['Losses', `${stats.losses}`],
-                ['Monsters defeated', `${stats.monsterDefeated}`],
-                ['Total damage dealt', `${stats.totalDamageDealt}`],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">{label}</p>
-                  <p className="mt-2 text-2xl font-black text-white">{value}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="panel animate-lift-in rounded-[30px] p-6">
-            <p className="section-label mb-4">Mastery map</p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {Object.entries(masterySummary).map(([subject, score]) => (
-                <div key={subject} className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-                  <p className="text-sm uppercase tracking-[0.2em] text-slate-400">{subject}</p>
-                  <p className="mt-2 text-2xl font-black text-white">{score}%</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="panel animate-lift-in rounded-[30px] p-6">
-            <p className="section-label mb-4">Skill tree</p>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {SKILL_TREES[user.heroClass].map((skill) => {
-                const unlocked = unlockedSkills.includes(skill.id);
-                return (
-                  <div
-                    key={skill.id}
-                    className={`rounded-[22px] border p-4 ${
-                      unlocked
-                        ? 'border-cyan-300/30 bg-cyan-400/10 text-cyan-50'
-                        : 'border-white/10 bg-white/5 text-slate-400'
-                    }`}
-                  >
-                    <p className="text-lg font-black">{skill.label}</p>
-                    <p className="mt-2 text-sm">{unlocked ? 'Unlocked' : 'Locked'}</p>
+      {/* Skill tree */}
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <p className="text-gray-400 text-sm mb-5">Skill Tree — {user.heroClass}</p>
+        <div className="flex items-start gap-2 overflow-x-auto pb-2">
+          {skills.map((skill, i) => {
+            const unlocked = user.level >= skill.requiredLevel;
+            return (
+              <div key={i} className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex flex-col items-center gap-1 w-20">
+                  <div className={`w-14 h-14 rounded-full border-2 flex items-center justify-center text-2xl transition-all ${unlocked ? 'border-cyan-400 bg-cyan-400/20 shadow-[0_0_12px_rgba(34,211,238,0.3)]' : 'border-gray-700 bg-gray-800 opacity-40'}`}>
+                    {unlocked ? '✨' : '🔒'}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="panel animate-lift-in rounded-[30px] p-6">
-          <p className="section-label mb-4">Recent raids</p>
-          <div className="space-y-3">
-            {raidHistory.length > 0 ? (
-              raidHistory.map((raidEntry) => (
-                <div key={raidEntry.id} className="rounded-[22px] border border-white/10 bg-white/5 p-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-base font-black text-white">{raidEntry.monsterName || 'Raid encounter'}</p>
-                      <p className="text-sm text-slate-400">
-                        {raidEntry.endTime ? new Date(raidEntry.endTime).toLocaleString() : 'Raid in progress'}
-                      </p>
-                    </div>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] ${
-                        raidEntry.status === 'completed'
-                          ? 'bg-emerald-400/15 text-emerald-100'
-                          : 'bg-amber-300/15 text-amber-100'
-                      }`}
-                    >
-                      {raidEntry.status}
-                    </span>
-                  </div>
+                  <p className={`text-center text-xs font-bold leading-tight ${unlocked ? 'text-white' : 'text-gray-600'}`}>{skill.name}</p>
+                  <p className={`text-center text-[10px] ${unlocked ? 'text-gray-400' : 'text-gray-700'}`}>Lv {skill.requiredLevel}</p>
                 </div>
-              ))
-            ) : (
-              <div className="rounded-[22px] border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                No completed raids yet. Run a squad battle to start building history.
+                {i < skills.length - 1 && <div className={`h-0.5 w-6 flex-shrink-0 mt-[-20px] ${unlocked && user.level >= skills[i+1].requiredLevel ? 'bg-cyan-400' : 'bg-gray-700 border-dashed'}`} />}
               </div>
-            )}
-          </div>
-
-          <div className="mt-6">
-            <p className="section-label mb-3">Progression history</p>
-            <div className="space-y-2">
-              {progressionHistory.length > 0 ? (
-                progressionHistory
-                  .slice()
-                  .reverse()
-                  .slice(0, 6)
-                  .map((entry, index) => (
-                    <div key={`${entry.timestamp}-${index}`} className="rounded-[18px] border border-white/10 bg-white/5 px-3 py-2">
-                      <p className="text-sm font-semibold text-white">
-                        {entry.correct ? 'Correct' : 'Incorrect'} answer in {entry.subject}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        {entry.concept} • {new Date(entry.timestamp).toLocaleString()}
-                      </p>
-                    </div>
-                  ))
-              ) : (
-                <div className="rounded-[18px] border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-400">
-                  Answer questions in raids to build your progression timeline.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {notice && (
-            <div className="mt-5 rounded-[20px] border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-              {notice}
-            </div>
-          )}
-
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="rounded-full bg-gradient-to-r from-fuchsia-300 via-rose-300 to-amber-300 px-6 py-3 text-sm font-black uppercase tracking-[0.22em] text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {refreshing ? 'Refreshing...' : 'Refresh profile'}
-            </button>
-            <Link
-              href="/"
-              className="rounded-full border border-white/10 bg-white/10 px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition hover:bg-white/15"
-            >
-              Back home
-            </Link>
-          </div>
+            );
+          })}
         </div>
-      </section>
+      </div>
+
+      <div className="flex gap-3 mt-5">
+        <Link href="/raid" className="bg-gradient-to-r from-rose-500 to-orange-400 px-5 py-3 rounded-xl font-black text-sm uppercase tracking-wide hover:scale-[1.02] transition">⚔️ New Raid</Link>
+        <Link href="/guild" className="bg-white/10 px-5 py-3 rounded-xl font-bold text-sm hover:bg-white/15">🏛️ Guild Hall</Link>
+      </div>
     </main>
   );
 }

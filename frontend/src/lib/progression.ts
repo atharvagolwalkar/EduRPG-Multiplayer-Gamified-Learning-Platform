@@ -1,36 +1,32 @@
-import type { HeroClass, UserRecord } from './useAPI';
+import type { AppUser } from './store';
 
-export const SKILL_TREES: Record<HeroClass, Array<{ id: string; label: string }>> = {
-  mage: [
-    { id: 'mage-hint-spell', label: 'Hint Spell' },
-    { id: 'mage-arcane-chain', label: 'Arcane Chain' },
-    { id: 'mage-proof-surge', label: 'Proof Surge' },
-  ],
-  engineer: [
-    { id: 'engineer-shield', label: 'Shield Matrix' },
-    { id: 'engineer-refactor', label: 'Refactor Burst' },
-    { id: 'engineer-compile-overdrive', label: 'Compile Overdrive' },
-  ],
-  scientist: [
-    { id: 'scientist-analyze', label: 'Analyze' },
-    { id: 'scientist-vector-lens', label: 'Vector Lens' },
-    { id: 'scientist-theory-breakthrough', label: 'Theory Breakthrough' },
-  ],
+export type MasterySummary = {
+  mathematics: number;
+  programming: number;
+  physics: number;
+  general: number;
 };
 
-export function getMasterySummary(user: Pick<UserRecord, 'progression'> | null) {
-  const mastery = user?.progression?.mastery || {};
+/**
+ * Derive a 0-100 mastery score per subject from the user's progression data.
+ * Falls back to 0 if the field doesn't exist (common for newly created users).
+ */
+export function getMasterySummary(user: AppUser & { progression?: any }): MasterySummary {
+  const mastery = (user as any).progression?.mastery || {};
 
-  const summarize = (bucket?: Record<string, { masteryScore: number }>) => {
-    const entries = Object.values(bucket || {});
+  function bucketToScore(bucket: Record<string, { correct: number; total: number }> | undefined): number {
+    if (!bucket) return 0;
+    const entries = Object.values(bucket);
     if (entries.length === 0) return 0;
-    return Math.round(entries.reduce((sum, entry) => sum + entry.masteryScore, 0) / entries.length);
-  };
+    const total = entries.reduce((s, b) => s + (b.total || 0), 0);
+    const correct = entries.reduce((s, b) => s + (b.correct || 0), 0);
+    return total === 0 ? 0 : Math.round((correct / total) * 100);
+  }
 
   return {
-    mathematics: summarize(mastery.mathematics),
-    programming: summarize(mastery.programming),
-    physics: summarize(mastery.physics),
-    general: summarize(mastery.general),
+    mathematics: bucketToScore(mastery.mathematics),
+    programming: bucketToScore(mastery.programming),
+    physics: bucketToScore(mastery.physics),
+    general: bucketToScore(mastery.general),
   };
 }

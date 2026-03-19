@@ -1,370 +1,105 @@
 'use client';
-
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useGameStore } from '@/lib/store';
-import { GuildRecord, UserRecord, useGuild, useUser } from '@/lib/useAPI';
-
-const mockGuilds: GuildRecord[] = [
-  {
-    id: '1',
-    name: 'Elite Squad',
-    description: 'Fast-paced learners chasing top ranks.',
-    leader: 'ShadowMage',
-    members: ['a'],
-    memberCount: 28,
-    xp: 45000,
-    level: 12,
-  },
-  {
-    id: '2',
-    name: 'Debug Hackers',
-    description: 'Problem-solvers who treat every lesson like a boss mechanic.',
-    leader: 'CodeNinja',
-    members: ['a'],
-    memberCount: 32,
-    xp: 42000,
-    level: 11,
-  },
-  {
-    id: '3',
-    name: 'Equation Solvers',
-    description: 'Math-heavy squad built for consistent wins.',
-    leader: 'MathChampion',
-    members: ['a'],
-    memberCount: 18,
-    xp: 35000,
-    level: 9,
-  },
-];
+import { api } from '@/lib/api';
 
 export default function GuildPage() {
-  const { user } = useGameStore();
-  const { createGuild, getGuildList, addMember } = useGuild();
-  const { getUsers } = useUser();
-  const [guilds, setGuilds] = useState<GuildRecord[]>(mockGuilds);
-  const [users, setUsers] = useState<UserRecord[]>([]);
-  const [selectedGuild, setSelectedGuild] = useState<string | null>(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [guildName, setGuildName] = useState('');
-  const [guildDescription, setGuildDescription] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [notice, setNotice] = useState('');
+  const { user, updateUser } = useGameStore();
+  const [guilds, setGuilds]     = useState<any[]>([]);
+  const [selected, setSelected] = useState<any>(null);
+  const [name, setName]         = useState('');
+  const [desc, setDesc]         = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [notice, setNotice]     = useState('');
+  const [showForm, setShowForm] = useState(false);
 
-  useEffect(() => {
-    let active = true;
+  useEffect(() => { api.getGuilds().then(d => setGuilds(d.guilds || [])).catch(() => {}); }, []);
 
-    const loadData = async () => {
-      try {
-        const [guildResponse, userResponse] = await Promise.allSettled([getGuildList(), getUsers()]);
-
-        if (active && guildResponse.status === 'fulfilled' && guildResponse.value.length > 0) {
-          setGuilds(guildResponse.value);
-        }
-
-        if (active && userResponse.status === 'fulfilled') {
-          setUsers(userResponse.value);
-        }
-      } catch (error) {
-        console.error('Error loading guild data:', error);
-      }
-    };
-
-    loadData();
-
-    return () => {
-      active = false;
-    };
-  }, [getGuildList, getUsers]);
-
-  const selectedGuildRecord = useMemo(
-    () => guilds.find((guild) => guild.id === selectedGuild) ?? null,
-    [guilds, selectedGuild]
-  );
-
-  const userMap = useMemo(
-    () => Object.fromEntries(users.map((entry) => [entry.id, entry])),
-    [users]
-  );
-
-  const selectedMembers = useMemo(() => {
-    if (!selectedGuildRecord) {
-      return [];
-    }
-
-    return selectedGuildRecord.members.map((memberId) => {
-      const record = userMap[memberId];
-      return {
-        id: memberId,
-        username: record?.username || memberId,
-        heroClass: record?.heroClass || 'unknown',
-      };
-    });
-  }, [selectedGuildRecord, userMap]);
-
-  const resolvedLeader = selectedGuildRecord ? userMap[selectedGuildRecord.leader]?.username || selectedGuildRecord.leader : '';
-
-  const handleCreateGuild = async () => {
-    if (!guildName.trim() || !user) {
-      return;
-    }
-
+  async function create() {
+    if (!name.trim() || !user) return;
     setLoading(true);
-    setNotice('');
-
     try {
-      const newGuild = await createGuild({
-        name: guildName.trim(),
-        description: guildDescription.trim(),
-        leaderId: user.id,
-      });
-      setGuilds((current) => [newGuild, ...current]);
-      setSelectedGuild(newGuild.id);
-      setShowCreateForm(false);
-      setGuildName('');
-      setGuildDescription('');
-      setNotice('Guild created successfully.');
-    } catch (error) {
-      console.error('Error creating guild:', error);
-      setNotice('The backend could not create the guild. Check that the backend server is running.');
-    } finally {
-      setLoading(false);
-    }
-  };
+      const { guild } = await api.createGuild({ name: name.trim(), description: desc.trim(), leaderId: user.id });
+      setGuilds(g => [guild, ...g]); setSelected(guild);
+      updateUser({ guildId: guild.id });
+      setShowForm(false); setName(''); setDesc(''); setNotice('Guild created!');
+    } catch (e: any) { setNotice(e.message); } finally { setLoading(false); }
+  }
 
-  const handleJoinGuild = async (guildId: string) => {
-    if (!user) {
-      setNotice('Create a hero before joining a guild.');
-      return;
-    }
-
+  async function join(guildId: string) {
+    if (!user) return;
     setLoading(true);
-    setNotice('');
-
     try {
-      const updatedGuild = await addMember(guildId, user.id);
-      setGuilds((current) => current.map((guild) => (guild.id === guildId ? updatedGuild : guild)));
-      setNotice(`You joined ${updatedGuild.name}.`);
-    } catch (error) {
-      console.error('Error joining guild:', error);
-      setNotice('Could not join the guild right now.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const userGuild = guilds.find((guild) => user?.guildId && guild.id === user.guildId) || null;
+      const { guild } = await api.joinGuild(guildId, user.id);
+      setGuilds(gs => gs.map(g => g.id === guildId ? guild : g));
+      setSelected(guild); updateUser({ guildId: guild.id });
+      setNotice(`Joined ${guild.name}!`);
+    } catch (e: any) { setNotice(e.message); } finally { setLoading(false); }
+  }
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
-      <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
-        <div className="mb-6 flex items-center gap-3">
-          <Link
-            href="/"
-            className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
-          >
-            ← Back Home
-          </Link>
-          <p className="text-slate-400">|</p>
-          <p className="section-label">Guild Hall</p>
+    <main className="max-w-5xl mx-auto px-4 py-8">
+      <div className="flex items-center gap-3 mb-6">
+        <Link href="/" className="bg-white/10 px-4 py-2 rounded-lg text-sm hover:bg-white/15">← Back</Link>
+        <h1 className="text-2xl font-black">🏛️ Guild Hall</h1>
+      </div>
+      <div className="grid lg:grid-cols-[1fr_360px] gap-6 mb-6">
+        <div>
+          <h2 className="text-4xl font-black mb-2">Build a learning squad.</h2>
+          <p className="text-gray-400">Join a guild to share XP, raid together, and climb the guild leaderboard.</p>
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            {[['Guilds', guilds.length], ['Your guild', user?.guildId ? 'Joined' : 'None'], ['Max size', 50]].map(([k, v]) => (
+              <div key={k} className="bg-gray-900 border border-gray-800 rounded-xl p-3 text-center">
+                <p className="font-black text-lg">{v}</p><p className="text-xs text-gray-500">{k}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="grid gap-8 lg:grid-cols-[1fr_0.9fr]">
-          <div className="space-y-5">
-            <h1 className="headline-gradient text-5xl font-black tracking-tight md:text-7xl">
-              Build a team identity around learning.
-            </h1>
-            <p className="max-w-2xl text-lg leading-8 text-slate-300">
-              Guilds now show richer detail: member roster, leader identity, current progress, and your guild status.
-            </p>
-
-            <div className="grid gap-4 sm:grid-cols-3">
-              {[
-                ['Active guilds', `${guilds.length}`],
-                ['Your guild', userGuild?.name || 'None yet'],
-                ['Top reward', 'Shared progression'],
-              ].map(([label, value]) => (
-                <div key={label} className="panel rounded-[24px] p-4">
-                  <p className="section-label mb-2">{label}</p>
-                  <p className="text-xl font-black text-white">{value}</p>
-                </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-gray-400">Start a guild</p>
+            <button onClick={() => setShowForm(v => !v)} className="text-xs bg-white/10 px-3 py-1.5 rounded-lg hover:bg-white/15">{showForm ? 'Cancel' : '+ Create'}</button>
+          </div>
+          {showForm ? (
+            <div className="space-y-3">
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="Guild name" className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500" />
+              <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Description" rows={2} className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-500 resize-none" />
+              <button onClick={create} disabled={!name.trim() || !user || loading} className="w-full bg-gradient-to-r from-emerald-400 to-cyan-500 text-black font-black py-3 rounded-xl text-sm uppercase tracking-wider disabled:opacity-50 hover:scale-[1.01] transition">{loading ? 'Creating...' : 'Launch Guild'}</button>
+            </div>
+          ) : selected ? (
+            <div>
+              <h3 className="text-xl font-black mb-1">{selected.name}</h3>
+              <p className="text-gray-400 text-sm mb-3">{selected.description || 'No description.'}</p>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {[['Members', selected.memberCount], ['XP', selected.xp], ['Level', selected.level]].map(([k, v]) => (
+                  <div key={k} className="bg-gray-800 rounded-lg p-2 text-center"><p className="font-black">{v}</p><p className="text-xs text-gray-500">{k}</p></div>
+                ))}
+              </div>
+              {user?.guildId !== selected.id
+                ? <button onClick={() => join(selected.id)} disabled={loading} className="w-full bg-gradient-to-r from-cyan-400 to-sky-500 text-black font-black py-2.5 rounded-xl text-sm uppercase tracking-wider disabled:opacity-50">{loading ? 'Joining...' : 'Join Guild'}</button>
+                : <p className="text-emerald-400 text-sm text-center font-bold">✅ You are a member</p>}
+            </div>
+          ) : <p className="text-gray-500 text-sm">Select a guild card below.</p>}
+          {notice && <p className="mt-3 text-sm text-cyan-300">{notice}</p>}
+        </div>
+      </div>
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {guilds.map(g => (
+          <button key={g.id} onClick={() => setSelected(g)} className={`bg-gray-900 border rounded-2xl p-5 text-left hover:-translate-y-1 transition ${selected?.id === g.id ? 'border-cyan-400' : 'border-gray-800'}`}>
+            <div className="flex items-start justify-between mb-3">
+              <div><p className="text-xs text-gray-500 mb-1">Guild</p><h3 className="text-xl font-black">{g.name}</h3></div>
+              <div className="w-10 h-10 bg-gradient-to-br from-cyan-400 to-sky-600 rounded-xl flex items-center justify-center text-xl">🏛️</div>
+            </div>
+            <p className="text-sm text-gray-400 mb-3">{g.description || 'A learning squad.'}</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[['Members', g.memberCount], ['XP', g.xp], ['Lv', g.level]].map(([k, v]) => (
+                <div key={k} className="bg-gray-800 rounded-lg p-2 text-center"><p className="font-black text-sm">{v}</p><p className="text-xs text-gray-600">{k}</p></div>
               ))}
-            </div>
-          </div>
-
-          <div className="panel rounded-[30px] p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <p className="section-label">Found a squad?</p>
-              <button
-                type="button"
-                onClick={() => setShowCreateForm((value) => !value)}
-                className="rounded-full border border-white/10 bg-white/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.2em] text-white transition hover:bg-white/15"
-              >
-                {showCreateForm ? 'Close form' : 'Create guild'}
-              </button>
-            </div>
-
-            {showCreateForm ? (
-              <div className="space-y-4">
-                <input
-                  type="text"
-                  value={guildName}
-                  onChange={(event) => setGuildName(event.target.value)}
-                  placeholder="Guild name"
-                  className="w-full rounded-[20px] border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none transition focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
-                />
-                <textarea
-                  value={guildDescription}
-                  onChange={(event) => setGuildDescription(event.target.value)}
-                  placeholder="Describe the guild vibe"
-                  rows={4}
-                  className="w-full rounded-[20px] border border-white/10 bg-slate-950/60 px-4 py-3 text-white outline-none transition focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
-                />
-                <button
-                  type="button"
-                  onClick={handleCreateGuild}
-                  disabled={!guildName.trim() || !user || loading}
-                  className="rounded-full bg-gradient-to-r from-emerald-300 via-cyan-300 to-sky-400 px-6 py-3 text-sm font-black uppercase tracking-[0.22em] text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {loading ? 'Creating...' : 'Launch guild'}
-                </button>
-              </div>
-            ) : selectedGuildRecord ? (
-              <div className="rounded-[24px] border border-white/10 bg-white/5 p-5">
-                <p className="section-label mb-3">Selected guild</p>
-                <h2 className="text-3xl font-black text-white">{selectedGuildRecord.name}</h2>
-                <p className="mt-3 text-sm leading-7 text-slate-300">
-                  {selectedGuildRecord.description || 'No description yet.'}
-                </p>
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-[18px] border border-white/10 bg-slate-950/40 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Members</p>
-                    <p className="mt-2 text-xl font-black text-white">{selectedGuildRecord.memberCount}</p>
-                  </div>
-                  <div className="rounded-[18px] border border-white/10 bg-slate-950/40 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">XP</p>
-                    <p className="mt-2 text-xl font-black text-white">{selectedGuildRecord.xp}</p>
-                  </div>
-                  <div className="rounded-[18px] border border-white/10 bg-slate-950/40 p-3">
-                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Leader</p>
-                    <p className="mt-2 text-xl font-black text-white">{resolvedLeader}</p>
-                  </div>
-                </div>
-                <div className="mt-5 rounded-[22px] border border-white/10 bg-slate-950/40 p-4">
-                  <p className="section-label mb-3">Member roster</p>
-                  <div className="space-y-2">
-                    {selectedMembers.length > 0 ? (
-                      selectedMembers.map((member) => (
-                        <div key={member.id} className="flex items-center justify-between rounded-[18px] bg-white/5 px-3 py-2">
-                          <span className="font-semibold text-white">{member.username}</span>
-                          <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{member.heroClass}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-slate-400">Member names will appear here as backend users join.</p>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-[22px] border border-white/10 bg-slate-950/40 p-4">
-                    <p className="section-label mb-3">Guild rewards</p>
-                    <div className="space-y-2">
-                      {(selectedGuildRecord.rewards || []).length > 0 ? (
-                        selectedGuildRecord.rewards?.map((reward) => (
-                          <div key={reward} className="rounded-[18px] bg-white/5 px-3 py-2 text-sm text-white">
-                            {reward}
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-slate-400">Reach higher guild levels to unlock rewards.</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="rounded-[22px] border border-white/10 bg-slate-950/40 p-4">
-                    <p className="section-label mb-3">Guild achievements</p>
-                    <div className="space-y-2">
-                      {(selectedGuildRecord.achievements || []).length > 0 ? (
-                        selectedGuildRecord.achievements?.map((achievement) => (
-                          <div key={achievement} className="rounded-[18px] bg-white/5 px-3 py-2 text-sm text-white">
-                            {achievement}
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-slate-400">Complete raids and grow the roster to earn achievements.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleJoinGuild(selectedGuildRecord.id)}
-                  disabled={loading}
-                  className="mt-5 rounded-full bg-gradient-to-r from-cyan-300 via-sky-400 to-indigo-400 px-6 py-3 text-sm font-black uppercase tracking-[0.22em] text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {loading ? 'Joining...' : 'Join guild'}
-                </button>
-              </div>
-            ) : (
-              <p className="text-sm leading-7 text-slate-300">
-                Pick a guild card below to inspect it, or open the form to create a new one.
-              </p>
-            )}
-
-            {notice && (
-              <div className="mt-5 rounded-[20px] border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
-                {notice}
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {guilds.map((guild) => (
-          <button
-            type="button"
-            key={guild.id}
-            onClick={() => setSelectedGuild(guild.id)}
-            className={`panel mesh-card animate-lift-in rounded-[28px] p-6 text-left transition duration-500 hover:-translate-y-1 ${
-              selectedGuild === guild.id ? 'border-cyan-300/40 shadow-[0_20px_60px_rgba(34,211,238,0.15)]' : ''
-            }`}
-          >
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <p className="section-label mb-2">Guild</p>
-                <h2 className="text-3xl font-black text-white">{guild.name}</h2>
-              </div>
-              <div className="rounded-3xl bg-gradient-to-br from-cyan-300 to-sky-500 p-4 text-3xl shadow-2xl">
-                🏛️
-              </div>
-            </div>
-            <p className="text-sm leading-7 text-slate-300">
-              {guild.description || 'A guild built for competitive learners.'}
-            </p>
-            <div className="mt-5 grid grid-cols-3 gap-3">
-              <div className="rounded-[18px] border border-white/10 bg-white/5 p-3">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Members</p>
-                <p className="mt-2 text-lg font-black text-white">{guild.memberCount}</p>
-              </div>
-              <div className="rounded-[18px] border border-white/10 bg-white/5 p-3">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">XP</p>
-                <p className="mt-2 text-lg font-black text-white">{guild.xp}</p>
-              </div>
-              <div className="rounded-[18px] border border-white/10 bg-white/5 p-3">
-                <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Level</p>
-                <p className="mt-2 text-lg font-black text-white">{guild.level}</p>
-              </div>
             </div>
           </button>
         ))}
-      </section>
-
-      <div className="mt-8">
-        <Link
-          href="/"
-          className="inline-flex rounded-full border border-white/10 bg-white/10 px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition hover:bg-white/15"
-        >
-          Back home
-        </Link>
+        {guilds.length === 0 && <p className="text-gray-600 col-span-3 text-center py-12">No guilds yet — create the first one!</p>}
       </div>
     </main>
   );
