@@ -2,12 +2,9 @@ import express from 'express';
 import cors from 'cors';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
-import {
-  users, raids, guilds,
-  createUser, getUser, addXP, recordRaidResult,
-  createRaid, getRaid,
-  createGuild, getGuild, joinGuild, addGuildXP,
-  getGlobalLeaderboard, getGuildLeaderboard,
+import { users, raids, guilds, createUser, getUser, addXP, recordRaidResult,
+  createRaid, getRaid, createGuild, getGuild, joinGuild, addGuildXP,
+  getGlobalLeaderboard, getGuildLeaderboard, updateLoginStreak  // ← add this
 } from './store.js';
 import { getQuestions } from './questions.js';
 
@@ -57,6 +54,14 @@ app.get('/api/users/:id', (req, res) => {
   const user = getUser(req.params.id);
   if (!user) return res.status(404).json({ success: false, error: 'User not found' });
   res.json({ success: true, user });
+});
+
+app.post('/api/users/:id/streak', (req, res) => {
+  try {
+    const result = updateLoginStreak(req.params.id);
+    const user = getUser(req.params.id);
+    res.json({ success: true, ...result, trophies: user?.trophies, league: user?.league });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 });
 
 app.get('/api/users', (_, res) => res.json({ success: true, users: [...users.values()] }));

@@ -1,10 +1,17 @@
-// ── Pure in-memory store — no database needed ─────────────────────────────────
 import { v4 as uuidv4 } from 'uuid';
 
-// ── Data stores ───────────────────────────────────────────────────────────────
-export const users   = new Map(); // userId → user
-export const raids   = new Map(); // raidId → raid
-export const guilds  = new Map(); // guildId → guild
+export const users  = new Map();
+export const raids  = new Map();
+export const guilds = new Map();
+
+// ── League system ─────────────────────────────────────────────────────────────
+export function getLeague(trophies = 0) {
+  if (trophies >= 3000) return 'Legend';
+  if (trophies >= 2000) return 'Diamond';
+  if (trophies >= 1000) return 'Gold';
+  if (trophies >= 500)  return 'Silver';
+  return 'Bronze';
+}
 
 // ── User helpers ──────────────────────────────────────────────────────────────
 export function createUser({ username, heroClass }) {
@@ -12,6 +19,10 @@ export function createUser({ username, heroClass }) {
   const user = {
     id, username, heroClass,
     level: 1, xp: 0, totalXp: 0,
+    trophies: 100,
+    streak: 0,
+    lastLoginDate: null,
+    league: 'Bronze',
     guildId: null,
     stats: { wins: 0, losses: 0, raidsCompleted: 0, totalDamageDealt: 0 },
     createdAt: Date.now(),
@@ -36,7 +47,37 @@ export function recordRaidResult(userId, { won, damageDealt }) {
   if (won) u.stats.wins++; else u.stats.losses++;
   u.stats.raidsCompleted++;
   u.stats.totalDamageDealt += damageDealt || 0;
-  if (won) addXP(userId, 100);
+  if (won) {
+    addXP(userId, 100);
+    u.trophies = (u.trophies || 100) + 20;
+  } else {
+    u.trophies = Math.max(0, (u.trophies || 100) - 10);
+  }
+  u.league = getLeague(u.trophies);
+}
+
+// Returns streak info after updating
+export function updateLoginStreak(userId) {
+  const u = users.get(userId);
+  if (!u) return { streak: 0, bonus: 0 };
+
+  const today    = new Date().toDateString();
+  const lastDate = u.lastLoginDate;
+
+  if (lastDate === today) return { streak: u.streak, bonus: 0 };
+
+  const yesterday = new Date(Date.now() - 86400000).toDateString();
+  if (lastDate === yesterday) {
+    u.streak++;
+  } else {
+    u.streak = 1;
+  }
+  u.lastLoginDate = today;
+
+  // Streak bonus XP
+  const bonus = u.streak >= 7 ? 250 : u.streak >= 3 ? 100 : 10;
+  addXP(userId, bonus);
+  return { streak: u.streak, bonus };
 }
 
 // ── Raid helpers ──────────────────────────────────────────────────────────────
@@ -44,7 +85,7 @@ export function createRaid({ raidId, monsterName = 'Calculus Titan', monsterHp =
   const raid = {
     id: raidId,
     monsterName, monsterHp, monsterMaxHp: monsterHp,
-    teamHp,      teamMaxHp: teamHp,
+    teamHp, teamMaxHp: teamHp,
     streak: 0, correctAnswers: 0, questionsAnswered: 0,
     status: 'active',
     players: [],

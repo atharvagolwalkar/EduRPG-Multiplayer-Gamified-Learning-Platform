@@ -3,6 +3,8 @@ import { create } from 'zustand';
 export type HeroClass = 'mage' | 'engineer' | 'scientist';
 
 export interface AppUser {
+  streak: number;
+  trophies: number;
   id: string;
   username: string;
   email?: string;
