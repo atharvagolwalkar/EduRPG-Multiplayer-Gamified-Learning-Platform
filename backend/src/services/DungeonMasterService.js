@@ -1,5 +1,5 @@
-const OPENAI_API_URL = process.env.OPENAI_API_URL || 'https://api.openai.com/v1/chat/completions';
-const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const HUGGING_FACE_API_URL = process.env.HUGGING_FACE_API_URL || 'https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.1';
+const HUGGING_FACE_API_KEY = process.env.HUGGING_FACE_API_KEY || '';
 
 function buildFallbackNarration({ isCorrect, streak, subject, concept, difficulty }) {
   if (isCorrect) {
@@ -30,46 +30,66 @@ export async function generateDungeonMasterBeat(payload) {
     heroClass: payload?.heroClass || 'adventurer',
   };
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!HUGGING_FACE_API_KEY) {
+    console.warn('⚠️  Hugging Face API key not configured. Using fallback narration system.');
     return buildFallbackNarration(safePayload);
   }
 
-  const prompt = `You are EduRPG's Dungeon Master. Produce JSON only with keys narration, hint, explanation.\nContext:\n- Correct answer: ${safePayload.isCorrect}\n- Streak: ${safePayload.streak}\n- Subject: ${safePayload.subject}\n- Concept: ${safePayload.concept}\n- Difficulty: ${safePayload.difficulty}\n- Hero class: ${safePayload.heroClass}\nRules:\n- narration <= 24 words, cinematic tone\n- hint <= 24 words, actionable\n- explanation <= 30 words, educational and clear\n- do not include markdown`; 
-
-  const response = await fetch(OPENAI_API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0.7,
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-    }),
-  });
-
-  if (!response.ok) {
-    return buildFallbackNarration(safePayload);
-  }
-
-  const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content;
-
-  if (!content) {
-    return buildFallbackNarration(safePayload);
-  }
+  const prompt = `You are EduRPG's Dungeon Master. Respond ONLY with JSON (no markdown, no code blocks) with keys: narration, hint, explanation.
+Context: Correct=${safePayload.isCorrect}, Streak=${safePayload.streak}, Subject=${safePayload.subject}, Concept=${safePayload.concept}, Difficulty=${safePayload.difficulty}, Hero=${safePayload.heroClass}
+Constraints:
+- narration: max 24 words, cinematic tone
+- hint: max 24 words, actionable strategy
+- explanation: max 30 words, educational
+Return only valid JSON.`;
 
   try {
-    const parsed = JSON.parse(content);
-    return {
-      narration: parsed.narration || buildFallbackNarration(safePayload).narration,
-      hint: parsed.hint || buildFallbackNarration(safePayload).hint,
-      explanation: parsed.explanation || buildFallbackNarration(safePayload).explanation,
-      source: 'openai',
+    const response = await fetch(HUGGING_FACE_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${HUGGING_FACE_API_KEY}`,
+      },
+      body: JSON.stringify({
+        inputs: prompt,
+        parameters: {
+          max_new_tokens: 200,
+          temperature: 0.7,
+        },
+      }),
+      timeout: 10000,
+    });
+
+    if (!response.ok) {
+      console.warn(`⚠️  Hugging Face API returned ${response.status}. Using fallback.`);
+      return buildFallbackNarration(safePayload);
+    }
+
+    const data = await response.json();
+    const generatedText = Array.isArray(data) && data[0]?.generated_text 
+      ? data[0].generated_text 
+      : data?.generated_text;
+
+    if (!generatedText) {
+      console.warn('⚠️  Hugging Face returned empty response. Using fallback.');
+      return buildFallbackNarration(safePayload);
+    }
+
+    // Extract JSON from potentially wrapped response
+    const jsonMatch = generatedText.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : generatedText;
+    
+    const parsed = JSON.parse(jsonStr);
+    const beat = {
+      narration: (parsed.narration || '').substring(0, 24) || buildFallbackNarration(safePayload).narration,
+      hint: (parsed.hint || '').substring(0, 24) || buildFallbackNarration(safePayload).hint,
+      explanation: (parsed.explanation || '').substring(0, 30) || buildFallbackNarration(safePayload).explanation,
+      source: 'huggingface',
     };
-  } catch (_error) {
+    console.log('✅ Hugging Face narration generated successfully');
+    return beat;
+  } catch (error) {
+    console.error('❌ Hugging Face API error:', error.message, '- Using fallback narration');
     return buildFallbackNarration(safePayload);
   }
 }

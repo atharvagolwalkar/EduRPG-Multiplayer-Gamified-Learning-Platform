@@ -1,4 +1,8 @@
+import { v4 as uuidv4 } from 'uuid';
+import admin from 'firebase-admin';
 import { UserService, RaidService, GuildService, LeaderboardService } from '../services/FirebaseService.js';
+import { generateDynamicQuestion, generateQuestionsForCategory } from '../services/QuestionGenerationService.js';
+import { isMockFirebase } from '../firebase.js';
 
 function parseLimit(value, fallback = 10) {
   const parsed = Number(value);
@@ -6,11 +10,64 @@ function parseLimit(value, fallback = 10) {
 }
 
 export function setupFirebaseRoutes(app) {
+  // ==================== AUTH ROUTES (Public) ====================
+  app.post('/api/auth/register', async (req, res) => {
+    const { username, heroClass = 'mage' } = req.body;
+    if (isMockFirebase) {
+      const mockUser = { id: uuidv4(), email: 'mock@test.com', username, heroClass };
+      await UserService.createUser(mockUser);
+      res.json({ success: true, user: mockUser, idToken: 'mock-id-token' });
+      return;
+    }
+
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ success: false, error: 'Missing registration token.' });
+      }
+
+      const idToken = authHeader.substring(7);
+      const decodedToken = await admin.auth().verifyIdToken(idToken);
+      const existingUser = await UserService.getUser(decodedToken.uid);
+
+      if (existingUser) {
+        return res.json({ success: true, user: existingUser });
+      }
+
+      const userData = await UserService.createUser({
+        id: decodedToken.uid,
+        email: decodedToken.email,
+        username,
+        heroClass,
+      });
+      res.json({ success: true, user: userData });
+    } catch (error) {
+      res.status(400).json({ success: false, error: error.message });
+    }
+  });
+
+  app.post('/api/auth/login', async (req, res) => {
+    const { email, password } = req.body;
+    if (isMockFirebase) {
+      res.json({ success: true, idToken: 'mock-id-token', user: { uid: 'mock-user-id', email } });
+      return;
+    }
+
+    // Frontend sends idToken after Firebase client login; no server login needed
+    res.status(400).json({ success: false, error: 'Use Firebase client SDK for login. Send ID token to protected APIs.' });
+  });
+
+  app.post('/api/auth/refresh', async (req, res) => {
+    // For token refresh if needed
+    res.json({ success: true, message: 'Tokens auto-refresh client-side' });
+  });
+
+  // ==================== PROTECTED ROUTES (Apply authMiddleware in server.js) ====================
   // ==================== USER ROUTES ====================
 
   app.post('/api/users/create', async (req, res) => {
     try {
-      const user = await UserService.createUser(req.body);
+      const user = await UserService.createUser({ ...req.body, id: req.user.uid });
       res.json({ success: true, user });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -219,4 +276,71 @@ export function setupFirebaseRoutes(app) {
       res.status(500).json({ success: false, error: error.message });
     }
   });
+
+  // ==================== QUESTION ROUTES ====================
+
+  // Get a question by subject and difficulty
+  app.get('/api/questions', async (req, res) => {
+    try {
+      const { subject, difficulty } = req.query;
+      
+      if (!subject) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'subject query parameter is required' 
+        });
+      }
+
+      const diff = difficulty ? Number(difficulty) : 1;
+      if (!Number.isFinite(diff) || diff < 1 || diff > 5) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'difficulty must be between 1 and 5' 
+        });
+      }
+
+      const question = await generateDynamicQuestion(
+        subject.toLowerCase(), 
+        diff,
+        req.query.concept || 'general'
+      );
+
+      if (!question) {
+        return res.status(404).json({ 
+          success: false, 
+          error: 'No questions found for this category' 
+        });
+      }
+
+      res.json({ success: true, question });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Get multiple questions for a category with progressive difficulty
+  app.get('/api/questions/category/:subject', async (req, res) => {
+    try {
+      const { subject } = req.params;
+      const maxDifficulty = req.query.maxDifficulty ? Number(req.query.maxDifficulty) : 3;
+
+      if (maxDifficulty < 1 || maxDifficulty > 5) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'maxDifficulty must be between 1 and 5' 
+        });
+      }
+
+      const questions = await generateQuestionsForCategory(subject.toLowerCase(), maxDifficulty);
+
+      res.json({ 
+        success: true, 
+        questions,
+        count: questions.length 
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
 }
+

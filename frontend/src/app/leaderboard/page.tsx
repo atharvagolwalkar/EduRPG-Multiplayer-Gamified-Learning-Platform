@@ -89,9 +89,18 @@ export default function LeaderboardPage() {
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
       <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
+        <div className="mb-6 flex items-center gap-3">
+          <Link
+            href="/"
+            className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+          >
+            ← Back Home
+          </Link>
+          <p className="text-slate-400">|</p>
+          <p className="section-label">Leaderboard</p>
+        </div>
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="section-label mb-3">Leaderboard</p>
             <h1 className="headline-gradient text-5xl font-black tracking-tight md:text-7xl">
               Make progress impossible to miss.
             </h1>

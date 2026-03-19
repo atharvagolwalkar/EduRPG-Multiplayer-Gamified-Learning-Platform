@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import AuthBootstrap from '../components/AuthBootstrap';
 
 export const metadata: Metadata = {
   title: 'EduRPG - Gamified Learning Platform',
@@ -14,6 +15,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <body className="overflow-x-hidden text-white">
+        <AuthBootstrap />
         <div className="app-shell">{children}</div>
       </body>
     </html>

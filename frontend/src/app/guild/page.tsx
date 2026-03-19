@@ -158,9 +158,18 @@ export default function GuildPage() {
   return (
     <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
       <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
+        <div className="mb-6 flex items-center gap-3">
+          <Link
+            href="/"
+            className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+          >
+            ← Back Home
+          </Link>
+          <p className="text-slate-400">|</p>
+          <p className="section-label">Guild Hall</p>
+        </div>
         <div className="grid gap-8 lg:grid-cols-[1fr_0.9fr]">
           <div className="space-y-5">
-            <p className="section-label">Guild Hall</p>
             <h1 className="headline-gradient text-5xl font-black tracking-tight md:text-7xl">
               Build a team identity around learning.
             </h1>

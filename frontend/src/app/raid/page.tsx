@@ -73,6 +73,7 @@ export default function RaidPage() {
   const [raidSummary, setRaidSummary] = useState<RaidEndPayload | null>(null);
   const [dungeonBeat, setDungeonBeat] = useState<DungeonMasterBeat | null>(null);
   const [loadingDungeonBeat, setLoadingDungeonBeat] = useState(false);
+  const [awaitingNextQuestion, setAwaitingNextQuestion] = useState(false);
   const joinedRaidRef = useRef<string | null>(null);
   const playerProgress = raid.players.map((player) => ({
     ...player,
@@ -130,6 +131,8 @@ export default function RaidPage() {
       handleSync(payload);
       setFeedbackType(payload.type === 'player-attack' ? 'correct' : 'wrong');
       setFeedbackMessage(payload.message || 'Raid state updated.');
+      // Disable all players' buttons while waiting for next question
+      setAwaitingNextQuestion(true);
     };
 
     const handleRaidEnd = (payload: RaidEndPayload) => {
@@ -291,9 +294,15 @@ export default function RaidPage() {
       const data = await response.json();
       if (data?.success && data.beat) {
         setDungeonBeat(data.beat);
+      } else if (data?.beat) {
+        // Handle case where response doesn't have success flag
+        setDungeonBeat(data.beat);
+      } else {
+        console.warn('Unexpected dungeon master response:', data);
       }
     } catch (error) {
       console.error('Failed to load Dungeon Master beat:', error);
+      // Leave previous DM response visible, don't error
     } finally {
       setLoadingDungeonBeat(false);
     }
@@ -325,6 +334,7 @@ export default function RaidPage() {
     window.setTimeout(() => {
       setFeedbackMessage('');
       setFeedbackType(null);
+      setAwaitingNextQuestion(false);
       setCurrentQuestionIndex((value) => (value + 1 < questions.length ? value + 1 : 0));
     }, 900);
   };
@@ -342,9 +352,18 @@ export default function RaidPage() {
     return (
       <main className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
         <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
+          <div className="mb-6 flex items-center gap-3">
+            <Link
+              href="/"
+              className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+            >
+              ← Back Home
+            </Link>
+            <p className="text-slate-400">|</p>
+            <p className="section-label">Raid Arena</p>
+          </div>
           <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr]">
             <div className="space-y-6">
-              <p className="section-label">Raid Arena</p>
               <h1 className="headline-gradient text-5xl font-black tracking-tight md:text-7xl">
                 Real squad raids with shareable room codes.
               </h1>
@@ -441,10 +460,18 @@ export default function RaidPage() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
       <section className="panel-strong animate-lift-in rounded-[36px] p-6 md:p-8">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="section-label mb-2">Live battle</p>
-            <h1 className="text-4xl font-black tracking-tight text-white md:text-5xl">Calculus Titan</h1>
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <Link
+              href="/"
+              className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+            >
+              ← Back Home
+            </Link>
+            <div>
+              <p className="section-label mb-2">Live battle</p>
+              <h1 className="text-4xl font-black tracking-tight text-white md:text-5xl">Calculus Titan</h1>
+            </div>
           </div>
           <div className="flex flex-wrap gap-3">
             <div className="rounded-full border border-cyan-300/30 bg-cyan-400/10 px-4 py-2 text-sm font-black uppercase tracking-[0.2em] text-cyan-50">
@@ -493,7 +520,7 @@ export default function RaidPage() {
             <QuestionCard
               question={questions[currentQuestionIndex]}
               onAnswer={handleAnswer}
-              disabled={!connected || Boolean(feedbackMessage && (feedbackType === 'correct' || feedbackType === 'wrong'))}
+              disabled={!connected || awaitingNextQuestion || Boolean(feedbackMessage && (feedbackType === 'correct' || feedbackType === 'wrong'))}
             />
 
             <div className="panel mt-5 rounded-[24px] p-5">

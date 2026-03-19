@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 interface User {
   id: string;
+  email: string;
   username: string;
   level: number;
   xp: number;
@@ -42,6 +43,8 @@ interface RaidState {
 interface GameStore {
   user: User | null;
   setUser: (user: User) => void;
+  logout: () => void;
+  loadPersistedUser: () => void;
   raid: RaidState;
   setRaid: (raid: Partial<RaidState>) => void;
   updatePlayerHp: (hp: number) => void;
@@ -60,9 +63,24 @@ const initialRaidState: RaidState = {
   isActive: false,
 };
 
-export const useGameStore = create<GameStore>((set) => ({
+export const useGameStore = create<GameStore>((set, get) => ({
   user: null,
   setUser: (user) => set({ user }),
+  logout: () => {
+    localStorage.removeItem('idToken');
+    localStorage.removeItem('user');
+    set({ user: null });
+    window.location.href = '/auth';
+  },
+  loadPersistedUser: () => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        const parsed = JSON.parse(storedUser);
+        set({ user: parsed });
+      } catch {}
+    }
+  },
   
   raid: initialRaidState,
   setRaid: (raidUpdate) =>
@@ -90,3 +108,4 @@ export const useGameStore = create<GameStore>((set) => ({
       raid: initialRaidState,
     })),
 }));
+

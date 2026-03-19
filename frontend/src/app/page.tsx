@@ -40,16 +40,25 @@ const DESTINATIONS = [
 ] as const;
 
 export default function Home() {
-  const { user } = useGameStore();
+  const { user, setUser } = useGameStore();
   const { createUser } = useUser();
   const [selectedHero, setSelectedHero] = useState<'mage' | 'engineer' | 'scientist' | null>(null);
   const [username, setUsername] = useState('');
-  const [showHeroSelect, setShowHeroSelect] = useState(false);
+  const [showHeroSelect, setShowHeroSelect] = useState(true); // Always start with true to avoid hydration mismatch
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [backendFirebaseMode, setBackendFirebaseMode] = useState<'loading' | 'mock' | 'connected'>('loading');
+  const [isHydrated, setIsHydrated] = useState(false);
 
+  // Load Firebase status and sync user state after hydration
   useEffect(() => {
+    setIsHydrated(true);
+    
+    // Update hero select based on current user
+    if (user) {
+      setShowHeroSelect(false);
+    }
+
     const loadStatus = async () => {
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'}/api/system/firebase-status`);
@@ -59,12 +68,12 @@ export default function Home() {
         setBackendFirebaseMode('mock');
       }
     };
-
     loadStatus();
-  }, []);
+  }, [user]);
 
   const handleStartGame = async () => {
     if (!username.trim() || !selectedHero) {
+      setErrorMessage('Please enter username and select a hero class');
       return;
     }
 
@@ -80,70 +89,208 @@ export default function Home() {
       setShowHeroSelect(false);
     } catch (error) {
       console.error('Error creating user:', error);
-      setErrorMessage('The backend could not create your hero. Check that the backend server is running on port 5000.');
+      setErrorMessage('Error creating character. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  if (user && !showHeroSelect) {
+  const handleChangeCharacter = () => {
+    setSelectedHero(null);
+    setUsername('');
+    setShowHeroSelect(true);
+    setErrorMessage('');
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('idToken');
+    localStorage.removeItem('user');
+    setUser(null);
+    setShowHeroSelect(true);
+    setErrorMessage('');
+  };
+
+  // Only render after hydration to prevent mismatch
+  if (!isHydrated) {
     return (
       <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
         <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
+          <div className="animate-pulse">
+            <div className="h-12 w-64 bg-slate-700 rounded-lg mb-4"></div>
+            <div className="h-6 w-full bg-slate-700 rounded-lg mb-4"></div>
+            <div className="h-6 w-3/4 bg-slate-700 rounded-lg"></div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  // Hero selection screen
+  if (!user || showHeroSelect) {
+    return (
+      <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
+        {backendFirebaseMode === 'mock' && (
+          <div className="mb-6 rounded-[20px] border border-amber-500/30 bg-amber-500/10 px-5 py-4">
+            <p className="text-sm font-semibold text-amber-200">
+              ⚠️ Firebase is running in MOCK mode - data will not persist. Check backend logs or FIREBASE_SETUP.md for configuration.
+            </p>
+          </div>
+        )}
+        <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
           <div className="grid gap-8 lg:grid-cols-[1.35fr_0.85fr]">
             <div className="space-y-6">
-              <p className="section-label">Player hub</p>
+              <p className="section-label">Character Selection</p>
               <div>
                 <h1 className="headline-gradient text-5xl font-black tracking-tight md:text-7xl">
-                  EduRPG
+                  Create Your Hero
                 </h1>
                 <p className="mt-4 max-w-2xl text-lg text-slate-300 md:text-xl">
-                  Turn study sessions into cinematic raid runs, squad-based progress, and visible momentum.
+                  Choose a hero class and start your learning adventure.
                 </p>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="panel rounded-[24px] p-4">
-                  <p className="section-label mb-2">Hero</p>
-                  <p className="text-2xl font-black capitalize text-white">{user.heroClass}</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="section-label mb-2 block">Username</label>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Enter your username..."
+                    className="w-full rounded-[20px] border border-white/10 bg-slate-950/60 px-5 py-3 text-white placeholder:text-slate-500 outline-none transition focus:border-cyan-300/40 focus:ring-2 focus:ring-cyan-300/20"
+                  />
                 </div>
-                <div className="panel rounded-[24px] p-4">
-                  <p className="section-label mb-2">Level</p>
-                  <p className="text-2xl font-black text-white">{user.level}</p>
+
+                <div>
+                  <label className="section-label mb-2 block">Hero Class</label>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {(['mage', 'engineer', 'scientist'] as const).map((heroClass) => (
+                      <button
+                        key={heroClass}
+                        onClick={() => setSelectedHero(heroClass)}
+                        className={`rounded-[20px] border-2 p-4 text-left transition ${
+                          selectedHero === heroClass
+                            ? 'border-cyan-300 bg-cyan-300/10'
+                            : 'border-white/10 bg-slate-950/60 hover:border-white/20'
+                        }`}
+                      >
+                        <p className="font-black capitalize text-white">{heroClass}</p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          {heroClass === 'mage'
+                            ? 'Mathematics Expert'
+                            : heroClass === 'engineer'
+                              ? 'Programming Expert'
+                              : 'Physics Expert'}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="panel rounded-[24px] p-4">
-                  <p className="section-label mb-2">XP</p>
-                  <p className="text-2xl font-black text-white">{user.xp}</p>
-                </div>
+
+                {errorMessage && (
+                  <div className="rounded-[20px] border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+                    {errorMessage}
+                  </div>
+                )}
+
+                <button
+                  onClick={handleStartGame}
+                  disabled={loading || !username.trim() || !selectedHero}
+                  className="w-full rounded-full bg-gradient-to-r from-amber-300 via-yellow-400 to-rose-400 px-6 py-4 text-sm font-black uppercase tracking-[0.24em] text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {loading ? 'Creating hero...' : 'Start Game'}
+                </button>
               </div>
 
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowHeroSelect(true)}
-                  className="rounded-full border border-white/10 bg-white/10 px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition hover:border-cyan-300/40 hover:bg-cyan-300/10"
-                >
-                  Rebuild hero
-                </button>
-                <Link
-                  href="/raid"
-                  className="rounded-full bg-gradient-to-r from-amber-300 via-yellow-400 to-rose-400 px-6 py-3 text-sm font-black uppercase tracking-[0.2em] text-slate-950 transition hover:scale-[1.02]"
-                >
-                  Launch raid
-                </Link>
-              </div>
+              <p className="text-xs text-slate-400">
+                {backendFirebaseMode === 'connected'
+                  ? '✅ Firebase connected'
+                  : '⚠️ Using local storage (mock mode)'}
+              </p>
             </div>
 
             <div className="panel rounded-[30px] p-6">
+              <p className="section-label mb-4">Hero Guide</p>
+              <div className="space-y-4">
+                <div className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                  <p className="text-lg font-black text-white">🧙 Mage</p>
+                  <p className="text-xs text-slate-400 mt-2">Specialize in Mathematics. High attack power, lower HP.</p>
+                </div>
+                <div className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                  <p className="text-lg font-black text-white">⚙️ Engineer</p>
+                  <p className="text-xs text-slate-400 mt-2">Specialize in Programming. Balanced attack and high HP.</p>
+                </div>
+                <div className="rounded-[24px] border border-white/10 bg-white/5 p-4">
+                  <p className="text-lg font-black text-white">🔬 Scientist</p>
+                  <p className="text-xs text-slate-400 mt-2">Specialize in Physics. Moderate attack and HP.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
+  // Main hub screen (logged in)
+  return (
+    <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
+      <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
+        <div className="grid gap-8 lg:grid-cols-[1.35fr_0.85fr]">
+          <div className="space-y-6">
+            <p className="section-label">Player Hub</p>
+            <div>
+              <h1 className="headline-gradient text-5xl font-black tracking-tight md:text-7xl">
+                EduRPG
+              </h1>
+              <p className="mt-4 max-w-2xl text-lg text-slate-300 md:text-xl">
+                Turn study sessions into cinematic raid runs, squad-based progress, and visible momentum.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="panel rounded-[24px] p-4">
+                <p className="section-label mb-2">Hero</p>
+                <p className="text-2xl font-black capitalize text-white">{user?.heroClass}</p>
+              </div>
+              <div className="panel rounded-[24px] p-4">
+                <p className="section-label mb-2">Level</p>
+                <p className="text-2xl font-black text-white">{user?.level}</p>
+              </div>
+              <div className="panel rounded-[24px] p-4">
+                <p className="section-label mb-2">XP</p>
+                <p className="text-2xl font-black text-white">{user?.xp || 0}</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={handleChangeCharacter}
+                className="rounded-full border border-white/10 bg-white/10 px-5 py-3 text-sm font-bold uppercase tracking-[0.2em] text-white transition hover:border-cyan-300/40 hover:bg-cyan-300/10"
+              >
+                Change Hero
+              </button>
+              <Link
+                href="/raid"
+                className="rounded-full bg-gradient-to-r from-amber-300 via-yellow-400 to-rose-400 px-6 py-3 text-sm font-black uppercase tracking-[0.2em] text-slate-950 transition hover:scale-[1.02]"
+              >
+                Launch Raid
+              </Link>
+            </div>
+          </div>
+
+          <div className="panel rounded-[30px] p-6 space-y-4">
+            <div>
               <p className="section-label mb-4">Welcome back</p>
               <div className="rounded-[28px] border border-white/10 bg-gradient-to-br from-white/10 to-white/5 p-6">
                 <div className="mb-5 flex items-center justify-between">
                   <div>
                     <p className="text-sm uppercase tracking-[0.22em] text-slate-400">Active profile</p>
-                    <h2 className="mt-2 text-3xl font-black text-white">{user.username}</h2>
+                    <h2 className="mt-2 text-3xl font-black text-white">{user?.username}</h2>
                   </div>
                   <div className="text-5xl">
-                    {user.heroClass === 'mage' ? '🔮' : user.heroClass === 'engineer' ? '⚙️' : '🧪'}
+                    {user?.heroClass === 'mage' ? '🔮' : user?.heroClass === 'engineer' ? '⚙️' : '🧪'}
                   </div>
                 </div>
                 <p className="text-sm leading-7 text-slate-300">
@@ -151,131 +298,31 @@ export default function Home() {
                 </p>
               </div>
             </div>
-          </div>
-        </section>
 
-        <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          {DESTINATIONS.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="panel mesh-card animate-lift-in rounded-[30px] p-6 transition duration-500 hover:-translate-y-1 hover:border-white/20"
-            >
-              <div className={`mb-5 inline-flex rounded-3xl bg-gradient-to-br ${item.accent} p-4 text-3xl shadow-2xl`}>
-                {item.icon}
-              </div>
-              <h2 className="text-2xl font-black text-white">{item.title}</h2>
-              <p className="mt-3 text-sm leading-7 text-slate-300">{item.subtitle}</p>
-            </Link>
-          ))}
-        </section>
-      </main>
-    );
-  }
-
-  return (
-    <main className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-10">
-      <section className="grid items-start gap-8 lg:grid-cols-[1.1fr_0.9fr]">
-        <div className="animate-lift-in space-y-8">
-          <div className="space-y-4">
-            <p className="section-label">Learning meets boss battles</p>
-            <h1 className="headline-gradient max-w-4xl text-5xl font-black tracking-tight md:text-7xl">
-              Build a study game that actually feels alive.
-            </h1>
-            <p className="max-w-2xl text-lg leading-8 text-slate-300">
-              Choose a hero class, generate your local profile, and move into raids, guilds, and progression loops.
-            </p>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-3">
-            {[
-              ['Co-op raids', 'Answer fast, stack streaks, and melt bosses.'],
-              ['Guild identity', 'Make group progress visible and social.'],
-              ['Real momentum', 'Track XP, classes, and progression at a glance.'],
-            ].map(([title, description]) => (
-              <div key={title} className="panel rounded-[24px] p-5">
-                <p className="text-lg font-black text-white">{title}</p>
-                <p className="mt-2 text-sm leading-7 text-slate-300">{description}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="panel rounded-[24px] p-5">
-            <p className="section-label mb-3">Firebase readiness</p>
-            <p className="text-sm leading-7 text-slate-300">
-              Backend mode: <span className="font-bold text-white">{backendFirebaseMode}</span>
-            </p>
-            <p className="text-sm leading-7 text-slate-300">
-              Frontend config: <span className="font-bold text-white">{isFirebaseConfigured ? 'complete' : 'missing keys'}</span>
-            </p>
-            {!isFirebaseConfigured && (
-              <p className="mt-2 text-xs text-slate-400">
-                Missing: {missingFirebaseConfig.join(', ')}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="panel-strong animate-lift-in rounded-[34px] p-6 md:p-8">
-          <div className="mb-6">
-            <p className="section-label mb-3">Create your hero</p>
-            <label className="mb-3 block text-sm font-bold uppercase tracking-[0.22em] text-slate-300">
-              Username
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              placeholder="Enter your gamer tag"
-              className="w-full rounded-[22px] border border-white/10 bg-slate-950/60 px-5 py-4 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50 focus:ring-2 focus:ring-cyan-300/20"
-            />
-          </div>
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-bold uppercase tracking-[0.22em] text-slate-300">
-                Pick your class
-              </p>
-              {selectedHero && (
-                <span className="rounded-full border border-amber-300/30 bg-amber-300/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-amber-100">
-                  {selectedHero}
-                </span>
-              )}
-            </div>
-            <div className="grid gap-4 xl:grid-cols-3">
-              {(['mage', 'engineer', 'scientist'] as const).map((heroClass) => (
-                <HeroCard
-                  key={heroClass}
-                  name={heroClass.charAt(0).toUpperCase() + heroClass.slice(1)}
-                  class={heroClass}
-                  stats={HERO_STATS[heroClass]}
-                  selected={selectedHero === heroClass}
-                  onSelect={() => setSelectedHero(heroClass)}
-                />
-              ))}
-            </div>
-          </div>
-
-          {errorMessage && (
-            <div className="mt-6 rounded-[22px] border border-rose-300/25 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
-              {errorMessage}
-            </div>
-          )}
-
-          <div className="mt-8 flex flex-wrap items-center gap-4">
             <button
-              type="button"
-              onClick={handleStartGame}
-              disabled={!username.trim() || !selectedHero || loading}
-              className="rounded-full bg-gradient-to-r from-cyan-300 via-sky-400 to-amber-300 px-7 py-4 text-sm font-black uppercase tracking-[0.24em] text-slate-950 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={handleLogout}
+              className="w-full rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm font-semibold text-red-300 transition hover:bg-red-500/20"
             >
-              {loading ? 'Summoning hero...' : 'Start adventure'}
+              Logout
             </button>
-            <p className="text-sm text-slate-400">
-              Local mode works even without Firebase credentials now.
-            </p>
           </div>
         </div>
+      </section>
+
+      <section className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+        {DESTINATIONS.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className="panel mesh-card animate-lift-in rounded-[30px] p-6 transition duration-500 hover:-translate-y-1 hover:border-white/20"
+          >
+            <div className={`mb-5 inline-flex rounded-3xl bg-gradient-to-br ${item.accent} p-4 text-3xl shadow-2xl`}>
+              {item.icon}
+            </div>
+            <h2 className="text-2xl font-black text-white">{item.title}</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-300">{item.subtitle}</p>
+          </Link>
+        ))}
       </section>
     </main>
   );

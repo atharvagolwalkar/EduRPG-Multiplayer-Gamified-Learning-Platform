@@ -112,6 +112,16 @@ export default function ProfilePage() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
       <section className="panel-strong mesh-card animate-lift-in rounded-[36px] p-8 md:p-10">
+        <div className="mb-6 flex items-center gap-3">
+          <Link
+            href="/"
+            className="rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+          >
+            ← Back Home
+          </Link>
+          <p className="text-slate-400">|</p>
+          <p className="section-label">My Profile</p>
+        </div>
         <div className="grid gap-8 lg:grid-cols-[1fr_0.95fr]">
           <div className={`rounded-[32px] border border-white/10 bg-gradient-to-br ${HERO_GRADIENTS[user.heroClass]} p-8`}>
             <p className="section-label mb-4">Command Deck</p>

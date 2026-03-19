@@ -141,7 +141,7 @@ class MockFirestore {
 }
 
 function initializeFirebase() {
-  const serviceAccountPath = resolve('./serviceAccountKey.json');
+  const serviceAccountPath = resolve(process.cwd(), 'src', 'config', 'serviceAccountKey.json');
 
   try {
     const serviceAccount = loadServiceAccount(serviceAccountPath);
@@ -150,7 +150,7 @@ function initializeFirebase() {
       projectId: process.env.FIREBASE_PROJECT_ID ?? serviceAccount.project_id,
     });
 
-    console.log('Firebase initialized with real credentials');
+    console.log(`✅ Firebase initialized with real credentials (Project: ${serviceAccount.project_id})`);
     return {
       adminApp: admin,
       db: admin.firestore(),
@@ -160,7 +160,17 @@ function initializeFirebase() {
       configSource: process.env.FIREBASE_CLIENT_EMAIL ? 'env' : 'serviceAccountKey.json',
     };
   } catch (error) {
-    console.warn('serviceAccountKey.json not found. Using in-memory mock services for local development.');
+    console.error('❌ Firebase initialization FAILED:', {
+      error: error?.message,
+      errorCode: error?.code,
+      serviceAccountPath,
+      envVarsPresent: {
+        FIREBASE_CLIENT_EMAIL: !!process.env.FIREBASE_CLIENT_EMAIL,
+        FIREBASE_PRIVATE_KEY: !!process.env.FIREBASE_PRIVATE_KEY,
+        FIREBASE_PROJECT_ID: !!process.env.FIREBASE_PROJECT_ID,
+      },
+    });
+    console.warn('⚠️  Using in-memory mock services for local development.');
     const mockDb = new MockFirestore();
     return {
       adminApp: null,

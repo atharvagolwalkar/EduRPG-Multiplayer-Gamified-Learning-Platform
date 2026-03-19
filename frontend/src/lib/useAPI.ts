@@ -4,6 +4,15 @@ import { useGameStore } from './store';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000';
 
+// Add auth token to all API calls
+axios.interceptors.request.use((config) => {
+  const token = localStorage.getItem('idToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export type HeroClass = 'mage' | 'engineer' | 'scientist';
 
 export interface UserPayload {
