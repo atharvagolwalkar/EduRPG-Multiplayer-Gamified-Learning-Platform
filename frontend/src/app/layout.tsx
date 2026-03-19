@@ -1,22 +1,18 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import AuthBootstrap from '../components/AuthBootstrap';
+import Bootstrap from '../components/AuthBootstrap';
 
 export const metadata: Metadata = {
-  title: 'EduRPG - Gamified Learning Platform',
-  description: 'Turn studying into an epic multiplayer adventure',
+  title: 'EduRPG ⚔️',
+  description: 'Multiplayer Gamified Learning',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="scroll-smooth">
-      <body className="overflow-x-hidden text-white">
-        <AuthBootstrap />
-        <div className="app-shell">{children}</div>
+    <html lang="en">
+      <body className="min-h-screen">
+        <Bootstrap />
+        {children}
       </body>
     </html>
   );

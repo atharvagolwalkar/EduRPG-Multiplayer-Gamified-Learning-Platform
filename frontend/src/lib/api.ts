@@ -8,8 +8,16 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
 }
 
 export const api = {
+  // Auth / user creation
   createUser: (body: { username: string; heroClass: string }) =>
     apiFetch<{ user: any }>('/api/users/create', { method: 'POST', body: JSON.stringify(body) }),
+
+  // Used by the existing page.tsx login/register flow
+  login: (body: { email: string; password: string }) =>
+    apiFetch<{ token: string; user: any }>('/api/auth/login', { method: 'POST', body: JSON.stringify(body) }),
+
+  register: (body: { username: string; email: string; password: string; heroClass: string }) =>
+    apiFetch<{ token: string; user: any }>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),
 
   getUser: (id: string) =>
     apiFetch<{ user: any }>(`/api/users/${id}`),
@@ -29,8 +37,9 @@ export const api = {
   getGuilds: () =>
     apiFetch<{ guilds: any[] }>('/api/guilds'),
 
-  joinGuild: (guildId: string, userId: string) =>
-    apiFetch<{ guild: any }>(`/api/guilds/${guildId}/join`, { method: 'POST', body: JSON.stringify({ userId }) }),
+  // joinGuild without requiring userId — backend reads from token or uses guestId
+  joinGuild: (guildId: string, userId?: string) =>
+    apiFetch<{ guild: any }>(`/api/guilds/${guildId}/join`, { method: 'POST', body: JSON.stringify({ userId: userId || '' }) }),
 
   getLeaderboard: (type: 'global' | 'guilds' | 'weekly' = 'global') =>
     apiFetch<{ leaderboard: any[] }>(`/api/leaderboard/${type}`),

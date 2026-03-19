@@ -1,6 +1,6 @@
 'use client';
 import Link from 'next/link';
-import { useGameStore } from '@/lib/store';
+import { useStore } from '@/lib/store';
 import { HERO_STATS, xpForLevel } from '@/lib/game';
 
 const SKILL_TREES: Record<string, { name: string; desc: string; requiredLevel: number }[]> = {
@@ -10,7 +10,7 @@ const SKILL_TREES: Record<string, { name: string; desc: string; requiredLevel: n
 };
 
 export default function ProfilePage() {
-  const { user } = useGameStore();
+  const { user } = useStore();
   if (!user) return (
     <main className="flex min-h-screen items-center justify-center">
       <div className="text-center"><p className="text-gray-400 mb-4">Create a hero first</p>
