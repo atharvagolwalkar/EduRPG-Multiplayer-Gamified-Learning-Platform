@@ -1,242 +1,67 @@
-# ⚔️ EduRPG – Multiplayer Gamified Learning Platform
+# EduRPG — Hackathon Submission Answers
+# Copy-paste these into your submission form
 
-**Turn studying into an epic multiplayer adventure.**
+## Project Name
+EduRPG — Multiplayer Gamified Learning Platform
 
-Transform learning into collaborative battles where students defeat monsters by solving academic challenges, join guilds, unlock skill trees, and raid together in real-time.
+## Tagline (one line)
+Turn studying into epic real-time multiplayer boss raids powered by AI
 
----
+## Problem Statement
+Traditional learning platforms are passive and repetitive. Students lose
+motivation because content is delivered, not experienced. Most EdTech apps
+treat learning as consumption — EduRPG treats it as combat.
 
-## 🎮 Quick Start (24-Hour Hackathon Edition)
+## Solution
+EduRPG transforms studying into a real-time RPG where students:
+- Form raid parties and fight boss monsters by answering questions
+- Deal damage with correct answers, take damage for wrong ones
+- Get narrated feedback from an AI Dungeon Master after every answer
+- Train with curated subject videos before entering battles
+- Climb trophy leagues from Bronze to Legend
 
-### Prerequisites
-- Node.js 18+ and npm
-- Firebase account (free tier sufficient)
-- Git
+## Key Features
+1. Real-time multiplayer raids — share a 6-letter code, teammates join live
+2. AI Dungeon Master — HuggingFace Mistral-7B narrates every answer
+3. 6 unique hero classes with special abilities (Mage, Engineer, Scientist,
+   Warrior, Archer, Alchemist)
+4. 5 boss monsters themed to subjects (Calculus Titan, Code Demon, etc.)
+5. Training Room — 24 curated YouTube videos across 4 subjects
+6. Trophy + League system — Bronze → Silver → Gold → Diamond → Legend
+7. Daily login streaks with XP bonuses
+8. Achievement system with 8 unlockable badges
+9. Guild system with shared XP
+10. Adaptive difficulty — questions get harder as accuracy improves
 
-### Installation
+## Tech Stack
+Frontend:  Next.js 14, React, TypeScript, Tailwind CSS, Zustand
+Backend:   Node.js, Express, Socket.io (real-time WebSockets)
+Database:  In-memory store (no setup required, instant demo)
+AI:        HuggingFace Mistral-7B-Instruct (with smart fallback)
+Deploy:    Vercel (frontend) + Render (backend)
 
-```bash
-# 1. Clone/open this repo
-cd eduplatform
+## What makes it innovative?
+Unlike existing EdTech tools that are async quizzes, EduRPG creates
+genuine collaborative moments. When a teammate answers correctly,
+EVERYONE sees the boss HP bar drop in real time. The AI doesn't just
+grade — it narrates the battle, gives tactical hints, and explains
+concepts in character. Learning becomes a shared, memorable experience.
 
-# 2. Install dependencies
-cd frontend && npm install
-cd ../backend && npm install
+## Challenges we faced
+- Real-time state synchronization across multiple players in the same raid
+- Making AI narration feel natural and contextual to the game moment
+- Balancing game difficulty to be challenging but not frustrating
+- Building a complete RPG progression system (XP, levels, leagues, skills)
+  within hackathon time constraints
 
-# 3. Set up environment variables
-# Frontend: Create frontend/.env.local
-NEXT_PUBLIC_FIREBASE_API_KEY=YOUR_KEY
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=YOUR_AUTH_DOMAIN
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=YOUR_PROJECT_ID
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=YOUR_BUCKET
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=YOUR_SENDER_ID
-NEXT_PUBLIC_FIREBASE_APP_ID=YOUR_APP_ID
-NEXT_PUBLIC_API_URL=http://localhost:5000
+## What's next
+- Persistent database (Supabase/Turso) for cross-session data
+- Async PvP — attack opponents with custom question sets
+- Clan war system — guilds compete in team quiz tournaments
+- Mobile app (React Native)
+- Teacher dashboard for classroom management
 
-# Backend: Create backend/.env
-FIREBASE_PROJECT_ID=YOUR_PROJECT_ID
-FIREBASE_PRIVATE_KEY=YOUR_PRIVATE_KEY
-FIREBASE_CLIENT_EMAIL=YOUR_CLIENT_EMAIL
-PORT=5000
-NODE_ENV=development
-OPENAI_API_KEY=YOUR_OPENAI_API_KEY   # optional for AI Dungeon Master
-OPENAI_MODEL=gpt-4o-mini             # optional override
-```
-
-### Running Locally
-
-```bash
-# Terminal 1: Backend
-cd backend
-npm run dev
-
-# Terminal 2: Frontend
-cd frontend
-npm run dev
-
-# Frontend opens at http://localhost:3000
-```
-
----
-
-## 🏗️ Project Architecture
-
-```
-eduplatform/
-├── frontend/                 # Next.js React app
-│   ├── src/
-│   │   ├── app/             # Pages (home, raid, guild, profile)
-│   │   ├── components/      # Reusable UI (Hero, Monster, RaidBoard)
-│   │   └── lib/             # Utilities (Firebase, WebSocket, game logic)
-│   └── package.json
-│
-├── backend/                  # Node.js/Express + Socket.io
-│   ├── src/
-│   │   ├── routes/          # REST API routes
-│   │   ├── services/        # Business logic (raid engine, guild service)
-│   │   ├── websocket.js     # WebSocket handlers
-│   │   └── server.js        # Express + Socket.io entry
-│   └── package.json
-│
-└── README.md
-```
-
----
-
-## 📋 Core Features (MVP)
-
-### 1. ⚔️ Real-Time Multiplayer Raids
-- Teams of 3–5 answer questions to defeat boss monsters
-- Live HP bars, combo streaks, damage floats via WebSocket
-- 3-minute raid timer
-- Correct answer = 10 damage + streak counter
-- Streak bonus = +5 damage (max 3× at 10-streak)
-
-### 2. 🏛️ Guild System
-- Create/join guilds (max 50 members)
-- Guild XP pool (shared progress)
-- Community leaderboard
-- Guild achievements
-
-### 3. 🗡️ Hero Classes & Skill Trees
-- **Mage** (Math focus) - High spell power
-- **Engineer** (Programming) - High defense
-- **Scientist** (Physics/Data) - Balanced
-- Unlock skills by reaching level thresholds
-
-### 4. 🎯 Adaptive Difficulty
-- Tracks accuracy % per student
-- Adjusts next question difficulty
-- Hints available for struggling students
-
-### 5. 🤖 AI Dungeon Master (Optional)
-- Live narration, hints, and teaching explanations after each raid answer
-- Works in fallback mode without an OpenAI key
-- Enable with `OPENAI_API_KEY` on the backend
-
-### 6. 📊 Progress Tracking
-- Experience points → Levels
-- Achievement badges
-- Leaderboards (global, guild, weekly)
-
----
-
-## 🛠️ Tech Stack
-
-| Layer | Tech |
-|-------|------|
-| **Frontend** | Next.js 14, React, Tailwind CSS, Socket.io Client |
-| **Backend** | Node.js, Express, Socket.io |
-| **Database** | Firebase Realtime DB + Firestore |
-| **Auth** | Firebase Auth |
-| **Real-time** | WebSockets (Socket.io) |
-| **Hosting** | Vercel (frontend), Firebase (backend) |
-
----
-
-## 📡 API Overview
-
-### REST Endpoints
-```
-POST   /api/auth/register       - Register user
-POST   /api/auth/login          - Login user
-GET    /api/user/profile        - Get user profile
-POST   /api/guild/create        - Create guild
-POST   /api/guild/join          - Join guild
-GET    /api/leaderboard         - Get rankings
-```
-
-### WebSocket Events
-```
-raid:start           - Initiate raid
-raid:answer          - Submit question answer
-raid:damage          - Damage update (broadcasted)
-raid:end             - Raid complete
-player:join          - Player joins raid
-player:leave         - Player leaves raid
-```
-
----
-
-## 🎯 24-Hour Hackathon Timeline
-
-| Time | Task | Owner |
-|------|------|-------|
-| 0–1h | Setup project, Firebase config | You |
-| 1–3h | Hero select + basic UI | UX focus |
-| 3–6h | Single-player raid loop (no multiplayer yet) | Core gameplay |
-| 6–8h | WebSocket setup + test with 2 players | Real-time |
-| 8–12h | Guild system + leaderboards | Features |
-| 12–18h | Polish UI, animations, edge cases | UX |
-| 18–24h | Deploy to Vercel, test live, final polish | Demo ready |
-
----
-
-## 🚀 Deployment
-
-### Frontend (Vercel - Free)
-```bash
-npm run build
-vercel deploy
-```
-
-### Backend (Firebase Functions or Render - Free)
-Deploy `backend/` folder or run on local machine during demo.
-
----
-
-## 📝 Key Files to Know
-
-- `frontend/src/app/page.tsx` - Home page (hero select)
-- `frontend/src/app/raid/page.tsx` - Raid battle screen
-- `frontend/src/lib/websocket.ts` - Socket.io client setup
-- `backend/src/server.js` - Express + Socket.io server
-- `backend/src/websocket.js` - Real-time game logic
-- `frontend/src/lib/firebase.ts` - Firebase initialization
-
----
-
-## 🎨 UI/UX Priorities
-
-For maximum hackathon impact:
-1. **Hero Select Screen** - Visually striking (character art, class descriptions)
-2. **Raid Battle UI** - Large HP bars, combo counter, live updates
-3. **Leaderboard** - Show top 10, animated rank changes
-4. **Guild Page** - Member list, shared progress bar
-5. **Mobile Responsive** - Touch-friendly buttons
-
----
-
-## 💡 Judging Tips
-
-- **Innovation**: Focus on real-time collaborative gameplay (not just quiz app)
-- **Impact**: Show how multiplayer increases engagement vs solo apps
-- **Execution**: Working demo > perfect code (speed matters)
-- **Polish**: Animations, feedback, sound effects (if time)
-- **Storytelling**: Narrate battles, celebrate victories, build atmosphere
-
----
-
-## 🐛 Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| Firebase connection fails | Check `.env.local` variables |
-| WebSocket events not firing | Verify backend Socket.io is running on `:5000` |
-| Raids not updating live | Check Network tab for WebSocket connection |
-| Build errors | Delete `node_modules/` and reinstall |
-
----
-
-## 📚 Resources
-
-- [Next.js Docs](https://nextjs.org/docs)
-- [Socket.io Docs](https://socket.io/docs/)
-- [Firebase Console](https://firebase.google.com/)
-- [Tailwind CSS](https://tailwindcss.com/)
-
----
-
-**Built for a 24-hour hackathon. Let's make learning epic! 🚀**
-
-For questions, check the docs or ask your team.
+## Live Demo
+Frontend: https://your-app.vercel.app
+Backend:  https://your-backend.onrender.com/health
+GitHub:   https://github.com/your-username/your-repo
